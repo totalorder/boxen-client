@@ -5,7 +5,7 @@ set -o pipefail
 set -o xtrace
 
 ./build-local
-gnome-terminal -- bash -c "./run-on-pi --id 2 --peer-id 1" &
+gnome-terminal -- bash -c "./run-on-pi --id 2 --peer-id 1 ; bash" &
 #gnome-terminal -- bash &
 PI_PID=$!
 trap "echo \"Killing ${PI_PID}\"; kill ${PI_PID}" INT

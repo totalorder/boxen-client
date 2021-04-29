@@ -98,9 +98,8 @@ echo "$(pwd)" > ~/.libnice-library-path.txt
 ## (on pc) Clone the repo and setup audio
 Clone the repo and check out branch "test1"
 ```bash
-git clone https://github.com/totalorder/gst-examples.git
-cd gst-examples/
-git checkout test1
+git clone --recursive https://github.com/totalorder/boxen-client.git
+cd boxen-client/
 ```
 
 Figure out how to access your microphone and speakers from gstreamer

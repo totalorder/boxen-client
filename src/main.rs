@@ -1,5 +1,4 @@
 mod macos_workaround;
-
 use std::sync::{Arc, Mutex, Weak};
 
 use rand::prelude::*;
@@ -23,6 +22,10 @@ use serde_derive::{Deserialize, Serialize};
 
 use anyhow::{anyhow, bail, Context};
 use std::fs;
+use boxen_gpio;
+use boxen_gpio::IO;
+use std::time::Duration;
+use std::thread;
 
 const STUN_SERVER: &str = "stun://stun.l.google.com:19302";
 const TURN_SERVER: &str = "turn://foo:bar@webrtc.nirbheek.in:3478";
@@ -122,7 +125,9 @@ impl App {
         anyhow::Error,
     > {
         let version = format!("version: {}", gst::version_string().as_str());
-        println!("{}", version);
+        println!("gstreamer version: {}", version);
+
+        setup_gpio();
 
         let input = fs::read_to_string("input.txt")
             .expect("Something went wrong reading the file")
@@ -715,6 +720,39 @@ async fn async_main() -> Result<(), anyhow::Error> {
 
     // All good, let's run our message loop
     run(args, ws).await
+}
+
+#[cfg(target_arch="aarch64")]
+fn setup_gpio() {
+    println!("Initializing GPIO...");
+    let mut io = IO::create(Duration::from_millis(50));
+    let mut led = io.create_led(24, 23);
+    led.set_off();
+    let yellow_button = io.create_button(27);
+    let green_button = io.create_button(17);
+
+    println!("GPIO initialized");
+    thread::spawn(move || {
+        let rx = io.listen();
+        println!("Listening for button events...");
+        for (pin, pressed) in rx.iter() {
+            println!("Button {} {}", pin, if pressed { "pressed" } else { "released" });
+            if pressed {
+                match pin {
+                    pin if pin == yellow_button.pin() => led.set_yellow(),
+                    pin if pin == green_button.pin() => led.set_green(),
+                    _ => panic!("Received button press for unknown button")
+                }
+            } else {
+                led.set_off();
+            }
+        }
+    });
+}
+
+#[cfg(not(target_arch="aarch64"))]
+fn setup_gpio() {
+    println!("GPIO is not supported on this platform. GPIO is diabled.")
 }
 
 fn main() -> Result<(), anyhow::Error> {

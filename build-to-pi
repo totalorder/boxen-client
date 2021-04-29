@@ -7,7 +7,7 @@ set -o xtrace
 TARGET_HOST="$(cat pi-ip.txt)"
 TARGET_PATH="."
 TARGET_ARCH="aarch64-unknown-linux-gnu"
-BINARY_NAME="webrtc-app"
+BINARY_NAME="boxen-client"
 SOURCE_PATH="./target/${TARGET_ARCH}/debug/${BINARY_NAME}"
 
 cross build --target="${TARGET_ARCH}"

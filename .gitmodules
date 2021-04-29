@@ -1,0 +1,3 @@
+[submodule "boxen-gpio"]
+	path = boxen-gpio
+	url = git@github.com:totalorder/boxen-gpio.git
