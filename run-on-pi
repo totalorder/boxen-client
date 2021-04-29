@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+set -o errexit
+set -o nounset
+set -o pipefail
+set -o xtrace
+
+TARGET_HOST="$(cat pi-ip.txt)"
+TARGET_PATH="."
+
+./build-to-pi
+ssh -t "${TARGET_HOST}" "cd ${TARGET_PATH} && LD_LIBRARY_PATH=\"\$(cat ~/.libnice-library-path.txt)\" GST_DEBUG=\"*webrtc*:7\" ./webrtc-app $@ ; bash"
