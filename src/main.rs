@@ -722,8 +722,12 @@ async fn async_main() -> Result<(), anyhow::Error> {
     run(args, ws).await
 }
 
-#[cfg(target_arch="aarch64")]
 fn setup_gpio() {
+    if !cfg!(target_arch="aarch64") {
+        println!("GPIO is not supported on this platform. GPIO is disabled.");
+        return;
+    }
+
     println!("Initializing GPIO...");
     let mut io = IO::create(Duration::from_millis(50));
     let mut led = io.create_led(24, 23);
@@ -748,11 +752,6 @@ fn setup_gpio() {
             }
         }
     });
-}
-
-#[cfg(not(target_arch="aarch64"))]
-fn setup_gpio() {
-    println!("GPIO is not supported on this platform. GPIO is diabled.")
 }
 
 fn main() -> Result<(), anyhow::Error> {
