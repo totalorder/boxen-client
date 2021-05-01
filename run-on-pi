@@ -8,4 +8,4 @@ TARGET_HOST="$(cat pi-ip.txt)"
 TARGET_PATH="."
 
 ./build-to-pi
-ssh -t "${TARGET_HOST}" "cd ${TARGET_PATH} && LD_LIBRARY_PATH=\"\$(cat ~/.libnice-library-path.txt)\" GST_DEBUG=\"*webrtc*:7\" ./boxen-client $@ ; bash"
+ssh -t "${TARGET_HOST}" "cd ${TARGET_PATH} && LD_LIBRARY_PATH=\"\$(cat ~/.libnice-library-path.txt)\" ./boxen-client $@ ; bash" # GST_DEBUG=\"*webrtc*:7\"

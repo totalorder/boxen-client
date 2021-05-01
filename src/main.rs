@@ -24,8 +24,13 @@ use anyhow::{anyhow, bail, Context};
 use std::fs;
 use boxen_gpio;
 use boxen_gpio::IO;
+use boxen_gpio::Led;
 use std::time::Duration;
 use std::thread;
+// use std::sync::mpsc;
+//use std::sync::mpsc::{Receiver} as SyncReceiver;
+use futures::channel::mpsc::{Receiver, Sender, UnboundedSender, UnboundedReceiver};
+//use crate::LedState::{Off, Yellow, Green};
 
 const STUN_SERVER: &str = "stun://stun.l.google.com:19302";
 const TURN_SERVER: &str = "turn://foo:bar@webrtc.nirbheek.in:3478";
@@ -90,6 +95,7 @@ struct AppInner {
     pipeline: gst::Pipeline,
     webrtcbin: gst::Element,
     send_msg_tx: Mutex<mpsc::UnboundedSender<WsMessage>>,
+    led_controller: LedController
 }
 
 // To be able to access the App's fields directly
@@ -114,21 +120,11 @@ impl App {
         AppWeak(Arc::downgrade(&self.0))
     }
 
-    fn new(
-        args: Args,
-    ) -> Result<
-        (
-            Self,
-            impl Stream<Item = gst::Message>,
-            impl Stream<Item = WsMessage>,
-        ),
-        anyhow::Error,
-    > {
-        let version = format!("version: {}", gst::version_string().as_str());
-        println!("gstreamer version: {}", version);
+    fn new(args: Args, led_controller: LedController) -> Result<
+            (Self, impl Stream<Item = gst::Message>, impl Stream<Item = WsMessage>),
+            anyhow::Error> {
 
-        setup_gpio();
-
+        // setup_gpio();
         let input = fs::read_to_string("input.txt")
             .expect("Something went wrong reading the file")
             .trim()
@@ -136,11 +132,11 @@ impl App {
 
         // Create the GStreamer pipeline
         let pipeline = gst::parse_launch(
-            &format!("{}{}",
-                     // "videotestsrc pattern=ball is-live=true ! vp8enc deadline=1 ! rtpvp8pay pt=96 ! webrtcbin. ",
-                     input, " ! opusenc ! rtpopuspay pt=97 ! webrtcbin. \
-         webrtcbin name=webrtcbin")
-    )?;
+            &format!(
+                "{}{}",
+                input,
+                // "videotestsrc pattern=ball is-live=true ! vp8enc deadline=1 ! rtpvp8pay pt=96 ! webrtcbin. ",
+                " ! opusenc ! rtpopuspay pt=97 ! webrtcbin. webrtcbin name=webrtcbin"))?;
 
         // Downcast from gst::Element to gst::Pipeline
         let pipeline = pipeline
@@ -164,16 +160,20 @@ impl App {
         // Channel for outgoing WebSocket messages from other threads
         let (send_ws_msg_tx, send_ws_msg_rx) = mpsc::unbounded::<WsMessage>();
 
+        println!("Created pipeline");
         let app = App(Arc::new(AppInner {
             args,
             pipeline,
             webrtcbin,
             send_msg_tx: Mutex::new(send_ws_msg_tx),
+            led_controller
         }));
 
         // Connect to on-negotiation-needed to handle sending an Offer
         if app.args.peer_id.is_some() {
             let app_clone = app.downgrade();
+            println!("Connecting on-negotiation-needed. \
+                Will be triggered when pipeline state set to Playing");
             app.webrtcbin
                 .connect("on-negotiation-needed", false, move |values| {
                     let _webrtc = values[0].get::<gst::Element>().unwrap();
@@ -243,13 +243,6 @@ impl App {
             }
         });
 
-        // Asynchronously set the pipeline to Playing
-        app.pipeline.call_async(|pipeline| {
-            pipeline
-                .set_state(gst::State::Playing)
-                .expect("Couldn't set pipeline to Playing");
-        });
-
         Ok((app, send_gst_msg_rx, send_ws_msg_rx))
     }
 
@@ -296,7 +289,7 @@ impl App {
     // for a new offer SDP from webrtcbin without any customization and then
     // asynchronously send it to the peer via the WebSocket connection
     fn on_negotiation_needed(&self) -> Result<(), anyhow::Error> {
-        println!("starting negotiation");
+        println!("Starting negotiation");
 
         let app_clone = self.downgrade();
         let promise = gst::Promise::with_change_func(move |reply| {
@@ -311,6 +304,7 @@ impl App {
             }
         });
 
+        println!("Asking webrtc to create-offer");
         self.webrtcbin
             .emit("create-offer", &[&None::<gst::Structure>, &promise])
             .unwrap();
@@ -324,6 +318,7 @@ impl App {
         &self,
         reply: Result<Option<&gst::StructureRef>, gst::PromiseError>,
     ) -> Result<(), anyhow::Error> {
+
         let reply = match reply {
             Ok(Some(reply)) => reply,
             Ok(None) => {
@@ -334,6 +329,7 @@ impl App {
             }
         };
 
+        println!("Received full offer from webrtc");
         let offer = reply
             .get_value("offer")
             .unwrap()
@@ -344,10 +340,12 @@ impl App {
             .emit("set-local-description", &[&offer, &None::<gst::Promise>])
             .unwrap();
 
-        println!(
-            "sending SDP offer to peer: {}",
-            offer.get_sdp().as_text().unwrap()
-        );
+
+        println!("Sending SDP-offer to peer");
+        // println!(
+        //     "Sending SDP-offer to peer: {}",
+        //     offer.get_sdp().as_text().unwrap()
+        // );
 
         let message = serde_json::to_string(&JsonMsg::Sdp {
             type_: "offer".to_string(),
@@ -380,6 +378,7 @@ impl App {
             }
         };
 
+        println!("Received SDP-answer from webrtc");
         let answer = reply
             .get_value("answer")
             .unwrap()
@@ -390,10 +389,11 @@ impl App {
             .emit("set-local-description", &[&answer, &None::<gst::Promise>])
             .unwrap();
 
-        println!(
-            "sending SDP answer to peer: {}",
-            answer.get_sdp().as_text().unwrap()
-        );
+        println!("Sending SDP-answer to peer");
+        // println!(
+        //     "Sending SDP-answer to peer: {}",
+        //     answer.get_sdp().as_text().unwrap()
+        // );
 
         let message = serde_json::to_string(&JsonMsg::Sdp {
             type_: "answer".to_string(),
@@ -413,20 +413,23 @@ impl App {
     // Handle incoming SDP answers from the peer
     fn handle_sdp(&self, type_: &str, sdp: &str) -> Result<(), anyhow::Error> {
         if type_ == "answer" {
-            print!("Received answer:\n{}\n", sdp);
+            println!("Received SDP-answer from peer");
+            // print!("Received SDP-answer from peer:\n{}\n", sdp);
 
             let ret = gst_sdp::SDPMessage::parse_buffer(sdp.as_bytes())
                 .map_err(|_| anyhow!("Failed to parse SDP answer"))?;
             let answer =
                 gst_webrtc::WebRTCSessionDescription::new(gst_webrtc::WebRTCSDPType::Answer, ret);
 
+            println!("Send SDP-answer to webrtc (set-remote-description)");
             self.webrtcbin
                 .emit("set-remote-description", &[&answer, &None::<gst::Promise>])
                 .unwrap();
 
             Ok(())
         } else if type_ == "offer" {
-            print!("Received offer:\n{}\n", sdp);
+            println!("Received SDP-offer from peer");
+            // print!("Received SDP-offer from peer:\n{}\n", sdp);
 
             let ret = gst_sdp::SDPMessage::parse_buffer(sdp.as_bytes())
                 .map_err(|_| anyhow!("Failed to parse SDP offer"))?;
@@ -442,6 +445,7 @@ impl App {
                     ret,
                 );
 
+                println!("Send SDP-offer to webrtc");
                 app.0
                     .webrtcbin
                     .emit("set-remote-description", &[&offer, &None::<gst::Promise>])
@@ -450,7 +454,6 @@ impl App {
                 let app_clone = app.downgrade();
                 let promise = gst::Promise::with_change_func(move |reply| {
                     let app = upgrade_weak!(app_clone);
-
                     if let Err(err) = app.on_answer_created(reply) {
                         gst_element_error!(
                             app.pipeline,
@@ -460,6 +463,7 @@ impl App {
                     }
                 });
 
+                println!("Ask webrtc to create an SDP-answer to the SDP-offer");
                 app.0
                     .webrtcbin
                     .emit("create-answer", &[&None::<gst::Structure>, &promise])
@@ -474,6 +478,8 @@ impl App {
 
     // Handle incoming ICE candidates from the peer by passing them to webrtcbin
     fn handle_ice(&self, sdp_mline_index: u32, candidate: &str) -> Result<(), anyhow::Error> {
+        // println!("Received ICE from peer");
+        // println!("Sending ICE to webrtc");
         self.webrtcbin
             .emit("add-ice-candidate", &[&sdp_mline_index, &candidate])
             .unwrap();
@@ -484,6 +490,8 @@ impl App {
     // Asynchronously send ICE candidates to the peer via the WebSocket connection as a JSON
     // message
     fn on_ice_candidate(&self, mlineindex: u32, candidate: String) -> Result<(), anyhow::Error> {
+        // println!("Received ICE from webrtc");
+        // println!("Sending ICE to peer");
         let message = serde_json::to_string(&JsonMsg::Ice {
             candidate,
             sdp_mline_index: mlineindex,
@@ -506,6 +514,7 @@ impl App {
             return Ok(());
         }
 
+        println!("Received incoming decodebin stream from webrtc");
         let decodebin = gst::ElementFactory::make("decodebin", None).unwrap();
         let app_clone = self.downgrade();
         decodebin.connect_pad_added(move |_decodebin, pad| {
@@ -520,6 +529,7 @@ impl App {
             }
         });
 
+        println!("Adding incoming decodebin stream to pipeline");
         self.pipeline.add(&decodebin).unwrap();
         decodebin.sync_state_with_parent().unwrap();
 
@@ -532,6 +542,7 @@ impl App {
     // Handle a newly decoded decodebin stream and depending on its type, create the relevant
     // elements or simply ignore it
     fn on_incoming_decodebin_stream(&self, pad: &gst::Pad) -> Result<(), anyhow::Error> {
+        println!("Received decodebin stream from pipeline");
         let caps = pad.get_current_caps().unwrap();
         let name = caps.get_structure(0).unwrap().get_name();
 
@@ -556,6 +567,7 @@ impl App {
             return Ok(());
         };
 
+        println!("Adding decodebin stream as a sink to the pipeline");
         self.pipeline.add(&sink).unwrap();
         sink.sync_state_with_parent()
             .with_context(|| format!("can't start sink for stream {:?}", caps))?;
@@ -563,7 +575,8 @@ impl App {
         let sinkpad = sink.get_static_pad("sink").unwrap();
         pad.link(&sinkpad)
             .with_context(|| format!("can't link sink for stream {:?}", caps))?;
-
+        println!("Sink started and linked to pad");
+        self.led_controller.clone().set_yellow();
         Ok(())
     }
 }
@@ -579,18 +592,21 @@ impl Drop for AppInner {
 async fn run(
     args: Args,
     ws: impl Sink<WsMessage, Error = WsError> + Stream<Item = Result<WsMessage, WsError>>,
+    gpio: GPIO
 ) -> Result<(), anyhow::Error> {
     // Split the websocket into the Sink and Stream
     let (mut ws_sink, ws_stream) = ws.split();
     // Fuse the Stream, required for the select macro
     let mut ws_stream = ws_stream.fuse();
 
+    println!("Starting app");
     // Create our application state
-    let (app, send_gst_msg_rx, send_ws_msg_rx) = App::new(args)?;
+    let (app, send_gst_msg_rx, send_ws_msg_rx) = App::new(args, gpio.led_controller.clone())?;
 
     let mut send_gst_msg_rx = send_gst_msg_rx.fuse();
     let mut send_ws_msg_rx = send_ws_msg_rx.fuse();
 
+    println!("Starting message loop");
     // And now let's start our message loop
     loop {
         let ws_msg = futures::select! {
@@ -674,10 +690,16 @@ async fn async_main() -> Result<(), anyhow::Error> {
 
     let args = Args::from_args();
 
+    let version = format!("version: {}", gst::version_string().as_str());
+    println!("gstreamer version: {}", version);
+
+    // setup_gpio();
+    let gpio = GPIO::new();
+
     // Connect to the given server
     let (mut ws, _) = async_tungstenite::async_std::connect_async(&args.server).await?;
 
-    println!("connected");
+    println!("Connected to websocket server");
 
     // Say HELLO to the server and see if it replies with HELLO
     let our_id: u32 = if let Some(id) = args.id {
@@ -686,7 +708,7 @@ async fn async_main() -> Result<(), anyhow::Error> {
         rand::thread_rng().gen_range(10, 10_000)
     };
 
-    println!("Registering id {} with server", our_id);
+    println!("Sending HELLO, registering as id {}", our_id);
 
     fs::write("id.txt", format!("{}", our_id))
         .expect("Something went wrong writing the file id.txt");
@@ -703,7 +725,10 @@ async fn async_main() -> Result<(), anyhow::Error> {
         bail!("server didn't say HELLO");
     }
 
+    println!("Received HELLO");
+
     if let Some(peer_id) = args.peer_id {
+        println!("Sending SESSION, joining session {}", peer_id);
         // Join the given session
         ws.send(WsMessage::Text(format!("SESSION {}", peer_id)))
             .await?;
@@ -716,10 +741,100 @@ async fn async_main() -> Result<(), anyhow::Error> {
         if msg != WsMessage::Text("SESSION_OK".into()) {
             bail!("server error: {:?}", msg);
         }
+        println!("Received SESSION_OK")
     }
 
     // All good, let's run our message loop
-    run(args, ws).await
+    run(args, ws, gpio).await
+}
+
+#[derive(Debug)]
+enum LedState {
+    Off,
+    Yellow,
+    Green
+}
+
+#[derive(Debug,Clone)]
+struct LedController {
+    led_tx: std::sync::mpsc::SyncSender<LedState>
+}
+
+impl LedController {
+    fn set_off(mut self) {
+        if !cfg!(target_arch="aarch64") {
+            return;
+        }
+        self.led_tx.send(LedState::Off);
+    }
+
+    fn set_yellow(mut self) {
+        if !cfg!(target_arch="aarch64") {
+            return;
+        }
+        println!("Sending Yellow message");
+        self.led_tx.send(LedState::Yellow);
+    }
+
+    fn set_green(mut self) {
+        if !cfg!(target_arch="aarch64") {
+            return;
+        }
+        self.led_tx.send(LedState::Green);
+    }
+}
+
+struct GPIO {
+    button_rx: std::sync::mpsc::Receiver<(u8, bool)>,
+    led_controller: LedController,
+}
+
+impl GPIO {
+    fn new() -> GPIO {
+        if !cfg!(target_arch="aarch64") {
+            println!("GPIO is not supported on this platform. GPIO is disabled.");
+            let (led_tx, led_rx) = std::sync::mpsc::sync_channel(0);
+            let (button_tx, button_rx) = std::sync::mpsc::channel();
+            let led_controller = LedController {
+                led_tx
+            };
+            return GPIO {
+                button_rx,
+                led_controller
+            };
+        }
+
+        println!("Initializing GPIO...");
+        let mut io = IO::create(Duration::from_millis(50));
+        let mut led = io.create_led(24, 23);
+        led.set_off();
+        let yellow_button = io.create_button(27);
+        let green_button = io.create_button(17);
+        let button_rx = io.listen();
+
+        let (led_tx, led_rx) = std::sync::mpsc::sync_channel(0);
+        thread::spawn(move || {
+            loop {
+                for led_state in led_rx.iter() {
+                    println!("Received {:?} message", led_state);
+                    match led_state {
+                        LedState::Off => { led.set_off() }
+                        LedState::Yellow => { led.set_yellow() }
+                        LedState::Green => { led.set_green() }
+                    }
+                }
+            }
+        });
+        let led_controller = LedController {
+            led_tx
+        };
+
+        GPIO {
+            button_rx,
+            led_controller
+        }
+    }
+
 }
 
 fn setup_gpio() {
