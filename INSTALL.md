@@ -77,11 +77,10 @@ echo "$(pwd)" > ~/.libnice-library-path.txt
 ```
 
 ## Clone the boxen-client repo
-Clone the repo and check out branch "test2"
+Clone the repo and cd into it
 ```bash
 git clone --recursive https://github.com/totalorder/boxen-client.git
 cd boxen-client/
-git checkout test2
 ```
 
 ### Configure audio inputs and outputs
@@ -130,7 +129,7 @@ Find the ip of the Pi
 ip route show
 ```
 
-On your PC, put the ip-address of the Pi in a file called pi-ip.txt in the current working directory for later use
+On your PC, put the ip-address of the Pi in a file called pi-ip.txt in the root of the boxen-client repo
 ```bash
 echo "192.168.0.123" > pi-ip.txt
 ```
