@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+set -o errexit
+set -o nounset
+set -o pipefail
+set -o xtrace
+
+./build-to-pi
+gnome-terminal -- bash -c "./run-on-pi --no-build --id 1" &
+PI_PID=$!
+trap "echo \"Killing ${PI_PID}\"; kill ${PI_PID}" INT
+
+./build-to-pi --target-host "$(cat pi-ip2.txt)"
+./run-on-pi --target-host "$(cat pi-ip2.txt)" --no-build --id 2 --peer-id 1
+wait ${PI_PID}

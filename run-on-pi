@@ -5,7 +5,17 @@ set -o pipefail
 set -o xtrace
 
 TARGET_HOST="$(cat pi-ip.txt)"
+if [[ "${1:-}" == "--target-host" ]]; then
+  TARGET_HOST="$2"
+  shift 2
+fi
+
 TARGET_PATH="."
 
-./build-to-pi
-ssh -t "${TARGET_HOST}" "cd ${TARGET_PATH} && LD_LIBRARY_PATH=\"\$(cat ~/.libnice-library-path.txt)\" ./boxen-client $@ ; bash" # GST_DEBUG=\"*webrtc*:7\"
+if [[ "${1:-}" == "--no-build" ]]; then
+  shift
+else
+  ./build-to-pi --target-host "${TARGET_HOST}"
+fi
+
+ssh -t "${TARGET_HOST}" "cd ${TARGET_PATH} && LD_LIBRARY_PATH=\"\$(cat ~/.libnice-library-path.txt)\" ./boxen-client $@" # GST_DEBUG=\"*webrtc*:7\"
