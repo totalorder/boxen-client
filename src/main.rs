@@ -7,7 +7,7 @@ use structopt::StructOpt;
 
 use async_std::prelude::*;
 use async_std::task;
-use futures::channel::mpsc;
+// use futures::channel::mpsc;
 use futures::sink::{Sink, SinkExt};
 use futures::stream::StreamExt;
 
@@ -15,7 +15,7 @@ use async_tungstenite::tungstenite;
 use tungstenite::Error as WsError;
 use tungstenite::Message as WsMessage;
 
-use gst::gst_element_error;
+use gst::{gst_element_error, Element};
 use gst::prelude::*;
 
 use serde_derive::{Deserialize, Serialize};
@@ -29,7 +29,12 @@ use std::time::Duration;
 use std::thread;
 // use std::sync::mpsc;
 //use std::sync::mpsc::{Receiver} as SyncReceiver;
-use futures::channel::mpsc::{Receiver, Sender, UnboundedSender, UnboundedReceiver};
+use futures::channel::mpsc::{UnboundedSender, UnboundedReceiver};
+// use gst::glib::types::Type::Bool;
+use crossbeam_channel;
+use crossbeam_channel::{Receiver, Sender, select};
+use crate::ButtonEvent::Started;
+
 //use crate::LedState::{Off, Yellow, Green};
 
 const STUN_SERVER: &str = "stun://stun.l.google.com:19302";
@@ -94,8 +99,9 @@ struct AppInner {
     args: Args,
     pipeline: gst::Pipeline,
     webrtcbin: gst::Element,
-    send_msg_tx: Mutex<mpsc::UnboundedSender<WsMessage>>,
-    led_controller: LedController
+    send_msg_tx: Mutex<futures::channel::mpsc::UnboundedSender<WsMessage>>,
+    led_controller: LedController,
+    button_controller: ButtonController
 }
 
 // To be able to access the App's fields directly
@@ -120,7 +126,7 @@ impl App {
         AppWeak(Arc::downgrade(&self.0))
     }
 
-    fn new(args: Args, led_controller: LedController) -> Result<
+    fn new(args: Args, gpio: GPIO) -> Result<
             (Self, impl Stream<Item = gst::Message>, impl Stream<Item = WsMessage>),
             anyhow::Error> {
 
@@ -136,7 +142,7 @@ impl App {
                 "{}{}",
                 input,
                 // "videotestsrc pattern=ball is-live=true ! vp8enc deadline=1 ! rtpvp8pay pt=96 ! webrtcbin. ",
-                " ! opusenc ! rtpopuspay pt=97 ! webrtcbin. webrtcbin name=webrtcbin"))?;
+                " name=audiosrc ! volume name=volume ! opusenc ! rtpopuspay pt=97 ! webrtcbin. webrtcbin name=webrtcbin"))?;
 
         // Downcast from gst::Element to gst::Pipeline
         let pipeline = pipeline
@@ -148,6 +154,33 @@ impl App {
             .get_by_name("webrtcbin")
             .expect("can't find webrtcbin");
 
+        let audiosrc = pipeline
+            .get_by_name("audiosrc")
+            .expect("Can't find element by name audiosrc");
+
+        let volume = pipeline
+            .get_by_name("volume")
+            .expect("Can't find element by name volume");
+        println!("volume.name{}", volume.get_name());
+
+        let volume_factory = volume.get_factory().expect("Couldn't get volume factory");
+        println!("volume_factory.name: {}", volume_factory.get_name());
+        println!("volume_factory.element_type.name: {}", volume_factory.get_element_type().name());
+        println!("volume_factory.type.name: {}", volume_factory.get_type().name());
+
+        // let mute = volume.get_property("mute").expect("Couldn't get property mute");
+        // let mute_value: bool = mute.get().expect("Couldn't get mute_value").expect("No mute_value set");
+        // println!("mute_value: {}", mute_value);
+        //
+        volume.set_property_from_str("mute", "true");
+        //
+        // let mute = volume.get_property("mute").expect("Couldn't get property mute");
+        // let mute_value: bool = mute.get().expect("Couldn't get mute_value").expect("No mute_value set");
+        // println!("mute_value: {}", mute_value);
+        let led_controller = gpio.led_controller;
+        let button_controller = gpio.button_controller;
+        listen_for_button_input(gpio.button_listener, volume, led_controller.clone());
+
         // Set some properties on webrtcbin
         webrtcbin.set_property_from_str("stun-server", STUN_SERVER);
         webrtcbin.set_property_from_str("turn-server", TURN_SERVER);
@@ -158,7 +191,7 @@ impl App {
         let send_gst_msg_rx = bus.stream();
 
         // Channel for outgoing WebSocket messages from other threads
-        let (send_ws_msg_tx, send_ws_msg_rx) = mpsc::unbounded::<WsMessage>();
+        let (send_ws_msg_tx, send_ws_msg_rx) = futures::channel::mpsc::unbounded::<WsMessage>();
 
         println!("Created pipeline");
         let app = App(Arc::new(AppInner {
@@ -166,7 +199,8 @@ impl App {
             pipeline,
             webrtcbin,
             send_msg_tx: Mutex::new(send_ws_msg_tx),
-            led_controller
+            led_controller,
+            button_controller
         }));
 
         // Connect to on-negotiation-needed to handle sending an Offer
@@ -576,7 +610,8 @@ impl App {
         pad.link(&sinkpad)
             .with_context(|| format!("can't link sink for stream {:?}", caps))?;
         println!("Sink started and linked to pad");
-        self.led_controller.clone().set_yellow();
+        self.button_controller.clone().started();
+
         Ok(())
     }
 }
@@ -601,7 +636,7 @@ async fn run(
 
     println!("Starting app");
     // Create our application state
-    let (app, send_gst_msg_rx, send_ws_msg_rx) = App::new(args, gpio.led_controller.clone())?;
+    let (app, send_gst_msg_rx, send_ws_msg_rx) = App::new(args, gpio)?;
 
     let mut send_gst_msg_rx = send_gst_msg_rx.fuse();
     let mut send_ws_msg_rx = send_ws_msg_rx.fuse();
@@ -757,18 +792,18 @@ enum LedState {
 
 #[derive(Debug,Clone)]
 struct LedController {
-    led_tx: std::sync::mpsc::SyncSender<LedState>
+    led_tx: Sender<LedState>
 }
 
 impl LedController {
-    fn set_off(mut self) {
+    fn set_off(&mut self) {
         if !cfg!(target_arch="aarch64") {
             return;
         }
         self.led_tx.send(LedState::Off);
     }
 
-    fn set_yellow(mut self) {
+    fn set_yellow(&mut self) {
         if !cfg!(target_arch="aarch64") {
             return;
         }
@@ -776,7 +811,7 @@ impl LedController {
         self.led_tx.send(LedState::Yellow);
     }
 
-    fn set_green(mut self) {
+    fn set_green(&mut self) {
         if !cfg!(target_arch="aarch64") {
             return;
         }
@@ -784,23 +819,58 @@ impl LedController {
     }
 }
 
+#[derive(Debug,Clone)]
+struct ButtonController {
+    event_tx: Sender<ButtonEvent>
+}
+
+impl ButtonController {
+    fn started(&mut self) {
+        self.event_tx.send(Started);
+    }
+}
+
+struct ButtonListener {
+    button_rx: Receiver<(u8, bool)>,
+    event_rx: Receiver<ButtonEvent>,
+    yellow_initial_state: bool,
+    green_initial_state: bool
+}
+
 struct GPIO {
-    button_rx: std::sync::mpsc::Receiver<(u8, bool)>,
+    button_listener: ButtonListener,
     led_controller: LedController,
+    button_controller: ButtonController
 }
 
 impl GPIO {
     fn new() -> GPIO {
         if !cfg!(target_arch="aarch64") {
             println!("GPIO is not supported on this platform. GPIO is disabled.");
-            let (led_tx, led_rx) = std::sync::mpsc::sync_channel(0);
-            let (button_tx, button_rx) = std::sync::mpsc::channel();
+            let (led_tx, led_rx) = crossbeam_channel::unbounded();
+
             let led_controller = LedController {
                 led_tx
             };
-            return GPIO {
+
+            let (event_tx, event_rx) = crossbeam_channel::unbounded();
+
+            let button_controller = ButtonController {
+                event_tx
+            };
+
+            let (button_tx, button_rx) = crossbeam_channel::unbounded();
+            let button_listener = ButtonListener {
                 button_rx,
-                led_controller
+                event_rx,
+                yellow_initial_state: true,
+                green_initial_state: true
+            };
+
+            return GPIO {
+                button_listener,
+                led_controller,
+                button_controller
             };
         }
 
@@ -812,7 +882,7 @@ impl GPIO {
         let green_button = io.create_button(17);
         let button_rx = io.listen();
 
-        let (led_tx, led_rx) = std::sync::mpsc::sync_channel(0);
+        let (led_tx, led_rx) = crossbeam_channel::unbounded();
         thread::spawn(move || {
             loop {
                 for led_state in led_rx.iter() {
@@ -829,44 +899,74 @@ impl GPIO {
             led_tx
         };
 
-        GPIO {
+        let (event_tx, event_rx) = crossbeam_channel::unbounded();
+        let button_controller = ButtonController {
+            event_tx
+        };
+
+        let button_listener = ButtonListener {
             button_rx,
-            led_controller
+            event_rx,
+            yellow_initial_state: yellow_button.initial_state(),
+            green_initial_state: green_button.initial_state(),
+        };
+
+        GPIO {
+            button_listener,
+            led_controller,
+            button_controller
         }
     }
-
 }
 
-fn setup_gpio() {
-    if !cfg!(target_arch="aarch64") {
-        println!("GPIO is not supported on this platform. GPIO is disabled.");
-        return;
-    }
+enum ButtonEvent {
+    Started
+}
 
-    println!("Initializing GPIO...");
-    let mut io = IO::create(Duration::from_millis(50));
-    let mut led = io.create_led(24, 23);
-    led.set_off();
-    let yellow_button = io.create_button(27);
-    let green_button = io.create_button(17);
-
-    println!("GPIO initialized");
+fn listen_for_button_input(button_listener: ButtonListener, volume: Element, mut led_controller: LedController) {
     thread::spawn(move || {
-        let rx = io.listen();
-        println!("Listening for button events...");
-        for (pin, pressed) in rx.iter() {
-            println!("Button {} {}", pin, if pressed { "pressed" } else { "released" });
-            if pressed {
-                match pin {
-                    pin if pin == yellow_button.pin() => led.set_yellow(),
-                    pin if pin == green_button.pin() => led.set_green(),
-                    _ => panic!("Received button press for unknown button")
+        println!("Listening for button input...");
+        let mut started = false;
+        let mut previous_state = button_listener.yellow_initial_state || button_listener.green_initial_state;
+        let button_rx = button_listener.button_rx;
+        let event_rx = button_listener.event_rx;
+        loop {
+            select! {
+                recv(button_rx) -> result => {
+                    let (pin, pressed) = result.expect("Received error or channel button_rx");
+                    println!("Button {} pressed: {}", pin, pressed);
+                    if pressed != previous_state {
+                        previous_state = pressed;
+                        if (started) {
+                            set_mute(&volume, &mut led_controller, pressed);
+                        }
+                    }
+                },
+                recv(event_rx) -> result => {
+                    let event = result.unwrap();
+                    match event {
+                        Started => {
+                            started = true;
+                            set_mute(&volume, &mut led_controller, previous_state);
+                        },
+                        _ => ()
+                    }
                 }
-            } else {
-                led.set_off();
             }
         }
     });
+}
+
+fn set_mute(volume: &Element, led_controller: &mut LedController, unmute: bool) {
+    volume.set_property_from_str("mute", if unmute { "false" } else { "true" });
+    let mute = volume.get_property("mute").expect("Couldn't get property mute");
+    let mute_value: bool = mute.get().expect("Couldn't get mute_value").expect("No mute_value set");
+    println!("mute_value: {}", mute_value);
+    if mute_value {
+        led_controller.set_yellow();
+    } else {
+        led_controller.set_green();
+    }
 }
 
 fn main() -> Result<(), anyhow::Error> {
