@@ -4,11 +4,26 @@ set -o nounset
 set -o pipefail
 set -o xtrace
 
-./build-to-pi
+NO_BUILD=""
+
+if [[ "${1:-}" == "--no-build" ]]; then
+  shift
+  NO_BUILD="true"
+fi
+
+if [[ -z "${NO_BUILD}" ]]; then
+  ./build-to-pi
+fi
+
 gnome-terminal -- bash -c "./run-on-pi --no-build --id 1" &
 PI_PID=$!
 trap "echo \"Killing ${PI_PID}\"; kill ${PI_PID}" INT
 
-./build-to-pi --target-host "$(cat pi-ip2.txt)"
+if [[ -z "${NO_BUILD}" ]]; then
+  ./build-to-pi --target-host "$(cat pi-ip2.txt)"
+else
+  sleep 3
+fi
+
 ./run-on-pi --target-host "$(cat pi-ip2.txt)" --no-build --id 2 --peer-id 1
 wait ${PI_PID}

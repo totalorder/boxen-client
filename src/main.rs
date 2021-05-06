@@ -730,6 +730,7 @@ async fn async_main() -> Result<(), anyhow::Error> {
 
     // setup_gpio();
     let gpio = GPIO::new();
+    gpio.led_controller.clone().set_yellow_blink();
 
     // Connect to the given server
     let (mut ws, _) = async_tungstenite::async_std::connect_async(&args.server).await?;
@@ -787,6 +788,7 @@ async fn async_main() -> Result<(), anyhow::Error> {
 enum LedState {
     Off,
     Yellow,
+    YellowBlink,
     Green
 }
 
@@ -807,7 +809,6 @@ impl LedController {
         if !cfg!(target_arch="aarch64") {
             return;
         }
-        println!("Sending Yellow message");
         self.led_tx.send(LedState::Yellow);
     }
 
@@ -816,6 +817,13 @@ impl LedController {
             return;
         }
         self.led_tx.send(LedState::Green);
+    }
+
+    fn set_yellow_blink(&mut self) {
+        if !cfg!(target_arch="aarch64") {
+            return;
+        }
+        self.led_tx.send(LedState::YellowBlink);
     }
 }
 
@@ -886,10 +894,10 @@ impl GPIO {
         thread::spawn(move || {
             loop {
                 for led_state in led_rx.iter() {
-                    println!("Received {:?} message", led_state);
                     match led_state {
                         LedState::Off => { led.set_off() }
                         LedState::Yellow => { led.set_yellow() }
+                        LedState::YellowBlink => { led.set_yellow_blink() }
                         LedState::Green => { led.set_green() }
                     }
                 }
