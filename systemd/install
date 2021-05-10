@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+set -o errexit
+set -o nounset
+set -o pipefail
+set -o xtrace
+
+TARGET_HOST="${1:-}"
+ssh "${TARGET_HOST}" "mkdir -p ~/.config/systemd/user/"
+scp boxen-client.service "${TARGET_HOST}:.config/systemd/user/"
+#scp dump.sh "${TARGET_HOST}:."
+ssh -t "${TARGET_HOST}" "(cd .config/systemd/user/ && sed -i \"s/__USER__/\${USER}/g\" boxen-client.service && sed -i \"s!__HOME__!\${HOME}!g\" boxen-client.service && systemctl --user daemon-reload && systemctl --user enable boxen-client && systemctl --user start boxen-client && sleep 1 && systemctl --user status boxen-client)"
+#ssh -t "${TARGET_HOST}" "sed -i \"s/__USER__/\${USER}/g\" boxen-client.service && sed -i \"s!__HOME__!\${HOME}!g\" boxen-client.service && sudo cp boxen-client.service /etc/systemd/system/boxen-client.service && sudo systemctl enable boxen-client && sudo systemctl start boxen-client && sleep 1 && sudo systemctl status boxen-client"

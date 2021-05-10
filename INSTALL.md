@@ -157,6 +157,9 @@ sudo apt update && sudo apt upgrade -y && sudo apt install -y \
 ## Allow non-root access to the GPIO-pins on the Pi
 ```bash
 sudo adduser $USER dialout
+
+# Reboot the Pi so that systemd discovers the new group on startup 
+sudo reboot now
 ```
 
 ## Compile libnice
@@ -205,4 +208,10 @@ echo "autoaudiosink" > output.txt
 On the pc, compile and run the application on both pc and pi.
 ```bash
 ./run-both
+```
+
+## Install boxen-client as a systemd service
+This will start boxen-client on boot
+```bash
+(cd systemd && ./install $(cat ../pi-ip.txt))
 ```

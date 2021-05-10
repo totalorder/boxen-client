@@ -1,0 +1,18 @@
+# This needs to be added as a systemd user service to get the correct permissions to access pulseaudio.
+# Since systemd user services can't access systemd system services it's not possible to set After=network-online.target.
+# Instead we rely on the service being restarted over and over until network/sound is online.
+[Unit]
+Description=boxen-client
+# This makes sure the service can not reach the max restart count, and will in effect restart forever until it succeeds
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+Restart=always
+RestartSec=10
+# __HOME__ will be replaced by the user's home directory by the ./install script
+ExecStart=__HOME__/boxen-client
+WorkingDirectory=__HOME__
+
+[Install]
+WantedBy=multi-user.target
