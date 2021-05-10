@@ -89,7 +89,7 @@ enum JsonMsg {
 #[derive(Debug, Clone)]
 struct App(Arc<AppInner>);
 
-// Weak reference to our application state
+// Weak reference to our application state. This passed into callback
 #[derive(Debug, Clone)]
 struct AppWeak(Weak<AppInner>);
 
@@ -104,7 +104,7 @@ struct AppInner {
     button_controller: ButtonController
 }
 
-// To be able to access the App's fields directly
+// To be able to access the AppInner's fields on the App
 impl std::ops::Deref for App {
     type Target = AppInner;
 
@@ -172,7 +172,10 @@ impl App {
         // let mute_value: bool = mute.get().expect("Couldn't get mute_value").expect("No mute_value set");
         // println!("mute_value: {}", mute_value);
         //
-        volume.set_property_from_str("mute", "true");
+
+        if cfg!(target_arch="aarch64") {
+            volume.set_property_from_str("mute", "true");
+        }
         //
         // let mute = volume.get_property("mute").expect("Couldn't get property mute");
         // let mute_value: bool = mute.get().expect("Couldn't get mute_value").expect("No mute_value set");
@@ -932,6 +935,10 @@ enum ButtonEvent {
 }
 
 fn listen_for_button_input(button_listener: ButtonListener, volume: Element, mut led_controller: LedController) {
+    if !cfg!(target_arch="aarch64") {
+        return;
+    }
+
     thread::spawn(move || {
         println!("Listening for button input...");
         let mut started = false;

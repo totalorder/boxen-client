@@ -4,5 +4,9 @@ set -o nounset
 set -o pipefail
 set -o xtrace
 
-#LD_LIBRARY_PATH="$(cat ~/.libnice-library-path.txt)" cargo run -- "$@" # GST_DEBUG="*webrtc*:7"
-LD_LIBRARY_PATH="$(cat ~/.libnice-library-path.txt)" target/debug/boxen-client "$@" # GST_DEBUG="*webrtc*:7"
+if [[ "${1:-}" == "--build" ]]; then
+  shift
+  LD_LIBRARY_PATH="$(cat ~/.libnice-library-path.txt)" cargo run -- "$@" # GST_DEBUG="*webrtc*:7"
+else
+  LD_LIBRARY_PATH="$(cat ~/.libnice-library-path.txt)" target/debug/boxen-client "$@" # GST_DEBUG="*webrtc*:7"
+fi

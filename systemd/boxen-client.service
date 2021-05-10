@@ -11,7 +11,7 @@ Type=simple
 Restart=always
 RestartSec=10
 # __HOME__ will be replaced by the user's home directory by the ./install script
-ExecStart=__HOME__/boxen-client
+ExecStart=__HOME__/boxen-client-run
 WorkingDirectory=__HOME__
 
 [Install]
