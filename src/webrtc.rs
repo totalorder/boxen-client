@@ -20,8 +20,9 @@ use futures::future::{Future, BoxFuture, LocalBoxFuture};
 use std::task::{Context, Poll};
 use std::pin::Pin;
 use gst::{StructureRef, PromiseError, Element};
-use async_trait::async_trait;
 use gst_webrtc::WebRTCSessionDescription;
+use crate::completable_future::CompletableFuture;
+use crate::gstreamer_utils::ObjectTypeAsyncExt;
 
 // JSON messages we communicate with
 #[derive(Serialize, Deserialize)]
@@ -39,49 +40,6 @@ enum JsonMsg {
     },
 }
 
-#[async_trait]
-pub trait ObjectTypeAsyncExt: ObjectType + Send{
-    async fn emit_async<F, R>(&self, signal_name: &str, reply_extractor: F) -> R where
-        F: FnOnce(&StructureRef) -> R + Send;
-
-    async fn connect_async<F, R, Fut>(&self, signal_name: &str, after: bool, callback: F) -> R where
-        F: FnOnce() -> Fut + Send + Sync + Clone + 'static,
-        Fut: Future<Output=R> + Send + 'static,
-        R: 'static + Send + Clone;
-}
-
-#[async_trait]
-impl<T: ObjectType + Send + Sync> ObjectTypeAsyncExt for T {
-    async fn emit_async<F, R>(&self, signal_name: &str, reply_extractor: F) -> R where
-        F: FnOnce(&StructureRef) -> R + Send {
-        let (promise, promise_future) = gst::Promise::new_future();
-        self.emit(signal_name, &[&None::<gst::Structure>, &promise]).unwrap();
-        let result = promise_future.await;
-        reply_extractor(result.unwrap().unwrap())
-    }
-
-    async fn connect_async<F, R, Fut>(&self, signal_name: &str, after: bool, callback: F) -> R where
-        F: FnOnce() -> Fut + Send + Sync + Clone + 'static,
-        Fut: Future<Output=R> + Send + 'static,
-        R: 'static + Send + Clone {
-
-        let (completable_future, completer) = CompletableFuture::<R>::new();
-        self.connect(signal_name, after, move |value| {
-            println!("connect_async callback called");
-            let callback = callback.clone();
-            let completer = completer.clone();
-            task::spawn( async move {
-                println!("connect_async spawned task called");
-                let result = callback().await;
-                completer.complete(result);
-            });
-            None
-        }).unwrap();
-
-        completable_future.run().await
-    }
-}
-
 #[derive(Debug, Clone)]
 struct WeakWebRTC {
     weak: Weak<InnerWebRTC>
@@ -95,44 +53,6 @@ pub struct WebRTC {
 struct InnerWebRTC {
     signalling_connection: SignallingConnection,
     gstreamer: Gstreamer,
-}
-
-struct CompletableFuture<T> {
-    receiver: channel::mpsc::Receiver<T>,
-}
-
-impl<T: 'static + Send + Clone> CompletableFuture<T> {
-    fn new() -> (CompletableFuture<T>, FutureCompleter<T>) {
-        let (sender, receiver) = channel::mpsc::channel(1);
-
-        let completable_future = CompletableFuture { receiver };
-        let future_completer = FutureCompleter { sender };
-
-        (completable_future, future_completer)
-    }
-
-    async fn run(self) -> T {
-        let (result, _receiver) = self.receiver.into_future().await;
-        result.unwrap()
-    }
-}
-
-#[derive(Clone)]
-struct FutureCompleter<T: 'static + Send + Clone> {
-    sender: channel::mpsc::Sender<T>
-}
-
-impl<T: 'static + Send + Clone> FutureCompleter<T> {
-    fn complete(&self, result: T) {
-        let mut sender_clone = self.sender.clone();
-        task::spawn(async move {
-            sender_clone.send(result).await.unwrap();
-        });
-    }
-
-    async fn complete_async(&self, result: T) {
-        self.sender.clone().send(result).await.unwrap();
-    }
 }
 
 impl WeakWebRTC {

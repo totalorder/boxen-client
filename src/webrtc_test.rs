@@ -5,6 +5,7 @@ mod utils;
 mod audio_stream;
 mod async_test;
 mod webrtc;
+mod completable_future;
 
 use webrtc::WebRTC;
 

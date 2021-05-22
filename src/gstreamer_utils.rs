@@ -9,6 +9,13 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 // use glib::prelude::{Cast, ObjectType};
 // use pipeline::GstPipelineExtManual;
+use gst::{StructureRef, PromiseError, Element};
+use futures::channel;
+use futures::FutureExt;
+use futures::future::Future;
+use crate::completable_future::CompletableFuture;
+use async_trait::async_trait;
+use async_std::task;
 
 lazy_static! {
     static ref GSTREAMER_INITIALIZED: Mutex<bool> = Mutex::from(false);
@@ -105,23 +112,48 @@ impl Gstreamer {
             Ok(())
         }
     }
-
-    // pub async fn emit_signal<F, R>(object: impl ObjectType, signal_name: &str, reply_extractor: F) -> Result<R, PromiseError> where
-    //     F: FnOnce(&StructureRef) -> R + Send + 'static,
-    //     R: Send + 'static {
-    //     let (completable_future, completer) = CompletableFuture::<R, PromiseError>::new();
-    //
-    //     let promise = gst::Promise::with_change_func(move |reply| {
-    //         match reply {
-    //             Ok(struct_ref) => completer.complete(reply_extractor(struct_ref.unwrap())),
-    //             Err(err) => completer.fail(err)
-    //         };
-    //     });
-    //
-    //     object.emit(signal_name, &[&None::<gst::Structure>, &promise]).unwrap().unwrap();
-    //     completable_future.run().await
-    // }
-
 }
 
 
+#[async_trait]
+pub trait ObjectTypeAsyncExt: ObjectType + Send{
+    async fn emit_async<F, R>(&self, signal_name: &str, reply_extractor: F) -> R where
+        F: FnOnce(&StructureRef) -> R + Send;
+
+    async fn connect_async<F, R, Fut>(&self, signal_name: &str, after: bool, callback: F) -> R where
+        F: FnOnce() -> Fut + Send + Sync + Clone + 'static,
+        Fut: Future<Output=R> + Send + 'static,
+        R: 'static + Send + Clone;
+}
+
+#[async_trait]
+impl<T: ObjectType + Send + Sync> ObjectTypeAsyncExt for T {
+    async fn emit_async<F, R>(&self, signal_name: &str, reply_extractor: F) -> R where
+        F: FnOnce(&StructureRef) -> R + Send {
+        let (promise, promise_future) = gst::Promise::new_future();
+        self.emit(signal_name, &[&None::<gst::Structure>, &promise]).unwrap();
+        let result = promise_future.await;
+        reply_extractor(result.unwrap().unwrap())
+    }
+
+    async fn connect_async<F, R, Fut>(&self, signal_name: &str, after: bool, callback: F) -> R where
+        F: FnOnce() -> Fut + Send + Sync + Clone + 'static,
+        Fut: Future<Output=R> + Send + 'static,
+        R: 'static + Send + Clone {
+
+        let (completable_future, completer) = CompletableFuture::<R>::new();
+        self.connect(signal_name, after, move |value| {
+            println!("connect_async callback called");
+            let callback = callback.clone();
+            let completer = completer.clone();
+            task::spawn( async move {
+                println!("connect_async spawned task called");
+                let result = callback().await;
+                completer.complete(result);
+            });
+            None
+        }).unwrap();
+
+        completable_future.run().await
+    }
+}
