@@ -19,7 +19,7 @@ use std::result::Result;
 use futures::future::{Future, BoxFuture, LocalBoxFuture};
 use std::task::{Context, Poll};
 use std::pin::Pin;
-use gst::{StructureRef, PromiseError};
+use gst::{StructureRef, PromiseError, Element};
 use async_trait::async_trait;
 use gst_webrtc::WebRTCSessionDescription;
 
@@ -40,41 +40,32 @@ enum JsonMsg {
 }
 
 #[async_trait]
-pub trait ObjectTypeExt: ObjectType + Send{
-    async fn emit_async<F, R>(&self, signal_name: &str, reply_extractor: F) -> Result<R, PromiseError> where
-        F: FnOnce(&StructureRef) -> R + Send + Clone + 'static,
-        R: Send + Clone + 'static;
+pub trait ObjectTypeAsyncExt: ObjectType + Send{
+    async fn emit_async<F, R>(&self, signal_name: &str, reply_extractor: F) -> R where
+        F: FnOnce(&StructureRef) -> R + Send;
 
-    async fn connect_async<F, R, E, Fut>(&self, signal_name: &str, after: bool, callback: F) -> Result<R, E> where
+    async fn connect_async<F, R, Fut>(&self, signal_name: &str, after: bool, callback: F) -> R where
         F: FnOnce() -> Fut + Send + Sync + Clone + 'static,
-        Fut: Future<Output=Result<R, E>> + Send + 'static,
-        R: 'static + Send + Clone, E: 'static + Send + Clone;
+        Fut: Future<Output=R> + Send + 'static,
+        R: 'static + Send + Clone;
 }
 
 #[async_trait]
-impl<T: ObjectType + Send + Sync> ObjectTypeExt for T {
-    async fn emit_async<F, R>(&self, signal_name: &str, reply_extractor: F) -> Result<R, PromiseError> where
-        F: FnOnce(&StructureRef) -> R + Send + Clone + 'static,
-        R: Send + Clone + 'static {
-        let (completable_future, completer) = CompletableFuture::<R, PromiseError>::new();
-
-        let promise = gst::Promise::with_change_func(move |reply| {
-            match reply {
-                Ok(struct_ref) => completer.complete(Ok(reply_extractor(struct_ref.unwrap()))),
-                Err(err) => completer.complete(Err(err))
-            };
-        });
-
+impl<T: ObjectType + Send + Sync> ObjectTypeAsyncExt for T {
+    async fn emit_async<F, R>(&self, signal_name: &str, reply_extractor: F) -> R where
+        F: FnOnce(&StructureRef) -> R + Send {
+        let (promise, promise_future) = gst::Promise::new_future();
         self.emit(signal_name, &[&None::<gst::Structure>, &promise]).unwrap();
-        completable_future.run().await
+        let result = promise_future.await;
+        reply_extractor(result.unwrap().unwrap())
     }
 
-    async fn connect_async<F, R, E, Fut>(&self, signal_name: &str, after: bool, callback: F) -> Result<R, E> where
+    async fn connect_async<F, R, Fut>(&self, signal_name: &str, after: bool, callback: F) -> R where
         F: FnOnce() -> Fut + Send + Sync + Clone + 'static,
-        Fut: Future<Output=Result<R, E>> + Send + 'static,
-        R: 'static + Send + Clone, E: 'static + Send + Clone {
+        Fut: Future<Output=R> + Send + 'static,
+        R: 'static + Send + Clone {
 
-        let (completable_future, completer) = CompletableFuture::<R, E>::new();
+        let (completable_future, completer) = CompletableFuture::<R>::new();
         self.connect(signal_name, after, move |value| {
             println!("connect_async callback called");
             let callback = callback.clone();
@@ -100,21 +91,18 @@ pub struct WebRTC {
     inner: Arc<InnerWebRTC>
 }
 
-
-
 #[derive(Debug)]
 struct InnerWebRTC {
     signalling_connection: SignallingConnection,
     gstreamer: Gstreamer,
 }
 
-
-struct CompletableFuture<T, E> {
-    receiver: channel::mpsc::Receiver<Result<T, E>>,
+struct CompletableFuture<T> {
+    receiver: channel::mpsc::Receiver<T>,
 }
 
-impl<T: 'static + Send + Clone, E: 'static + Send + Clone> CompletableFuture<T, E> {
-    fn new() -> (CompletableFuture<T, E>, FutureCompleter<T, E>) {
+impl<T: 'static + Send + Clone> CompletableFuture<T> {
+    fn new() -> (CompletableFuture<T>, FutureCompleter<T>) {
         let (sender, receiver) = channel::mpsc::channel(1);
 
         let completable_future = CompletableFuture { receiver };
@@ -123,26 +111,26 @@ impl<T: 'static + Send + Clone, E: 'static + Send + Clone> CompletableFuture<T, 
         (completable_future, future_completer)
     }
 
-    async fn run(self) -> Result<T, E> {
+    async fn run(self) -> T {
         let (result, _receiver) = self.receiver.into_future().await;
         result.unwrap()
     }
 }
 
 #[derive(Clone)]
-struct FutureCompleter<T: 'static + Send + Clone, E: 'static + Send + Clone> {
-    sender: channel::mpsc::Sender<Result<T, E>>
+struct FutureCompleter<T: 'static + Send + Clone> {
+    sender: channel::mpsc::Sender<T>
 }
 
-impl<T: 'static + Send + Clone, E: 'static + Send + Clone> FutureCompleter<T, E> {
-    fn complete(&self, result: Result<T, E>) {
+impl<T: 'static + Send + Clone> FutureCompleter<T> {
+    fn complete(&self, result: T) {
         let mut sender_clone = self.sender.clone();
         task::spawn(async move {
             sender_clone.send(result).await.unwrap();
         });
     }
 
-    async fn complete_async(&self, result: Result<T, E>) {
+    async fn complete_async(&self, result: T) {
         self.sender.clone().send(result).await.unwrap();
     }
 }
@@ -151,24 +139,6 @@ impl WeakWebRTC {
     pub fn upgrade(&self) -> Option<WebRTC> {
         self.weak.upgrade().map(|inner| { WebRTC { inner }})
     }
-}
-
-async fn call_example() {
-    // let f = async |x, y|{
-    //     x > y
-    // };
-    let f = |x, y| async move {
-        x > y
-    };
-
-    let z = example(f).await;
-}
-
-async fn example<F, Fut>(f: F)
-    where
-        F: FnOnce(i32, i32) -> Fut,
-        Fut: Future<Output = bool> {
-    f(1, 2).await;
 }
 
 impl WebRTC {
@@ -196,69 +166,42 @@ impl WebRTC {
 
     async fn start_pipeline(&self) {
         let self_weak = self.downgrade();
-        let (completable_future, completer) = CompletableFuture::<(), ()>::new();
-        self.inner.gstreamer.pipeline.call_async(move |pipeline| {
+        self.inner.gstreamer.pipeline.call_async_future(move |pipeline| {
             let self_strong = self_weak.upgrade().unwrap();
             println!("Starting pipeline");
             // If this fails, post an error on the bus so we exit
             self_strong.inner.gstreamer.pipeline.set_state(gst::State::Playing).unwrap();
             println!("Pipeline started");
-            completer.complete(Ok(()));
-        });
-        completable_future.run().await.unwrap();
+        }).await;
     }
-
-    fn receive_reply(&self, reply: Result<Option<&StructureRef>, PromiseError>) {
-        let r = reply;
-    }
-
 
     async fn on_negotiation_needed(&self) {
         let self_weak = self.downgrade();
 
-        let result = self.inner.gstreamer.webrtcbin
+        let offer = self.inner.gstreamer.webrtcbin
             .connect_async("on-negotiation-needed", false, || async move {
                 println!("on-negotiation-needed callback called");
 
                 let self_strong = self_weak.upgrade().unwrap();
 
-                let signal_response = self_strong.inner.gstreamer.webrtcbin.emit_async("create-offer", |reply| {
-                    reply
-                        .get_value("offer")
-                        .unwrap()
-                        .get::<gst_webrtc::WebRTCSessionDescription>()
-                        .expect("Invalid argument")
-                        .unwrap()
-                }).await;
+                let offer = self_strong.inner.gstreamer.webrtcbin
+                    .emit_async("create-offer", |reply| {
+                        reply.get_value("offer")
+                            .unwrap()
+                            .get::<gst_webrtc::WebRTCSessionDescription>()
+                            .expect("Invalid argument")
+                            .unwrap()
+                    }).await;
 
-                signal_response
-            });
-        println!("on-negotiation-needed callback registered");
-        let result = result;
-        println!("on-negotiation-needed awaited!");
+                offer
+            }).await;
+
+        self.on_offer_created(offer).await
     }
 
     pub async fn on_offer_created(
         &self,
-        reply: Result<Option<&gst::StructureRef>, gst::PromiseError>) {
-
-        let reply = match reply {
-            Ok(Some(reply)) => reply,
-            Ok(None) => {
-                panic!("Offer creation future got no response");
-            }
-            Err(error) => {
-                panic!("Offer creation future got error response: {:?}", error);
-            }
-        };
-
-        println!("Received full offer from webrtc");
-        let offer = reply
-            .get_value("offer")
-            .unwrap()
-            .get::<gst_webrtc::WebRTCSessionDescription>()
-            .expect("Invalid argument")
-            .unwrap();
+        offer: WebRTCSessionDescription) {
         self.inner.gstreamer.webrtcbin
             .emit("set-local-description", &[&offer, &None::<gst::Promise>])
             .unwrap();
