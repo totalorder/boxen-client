@@ -7,7 +7,13 @@ use futures::stream::StreamExt;
 use async_std::prelude::*;
 use async_tungstenite::async_std::ConnectStream;
 use futures::channel::mpsc::{self, Sender, Receiver, SendError};
+use futures::prelude::*;
 use std::fmt;
+use std::task::{Context, Poll};
+use std::pin::Pin;
+use futures::stream::Stream;
+use futures::prelude::stream::{IntoStream, SplitStream};
+// use futures::TryStreamExt;
 
 // use simple_error::SimpleError;
 // use super::gstreamer_utils;
@@ -24,18 +30,29 @@ const SIGNALLING_SERVER: &str = "ws://boxen.deadlock.se:8443";
 
 pub struct SignallingConnection {
     web_socket_stream: WebSocketStream<ConnectStream>,
-    sender: Sender<String>,
+    sender: Sender<String>
+}
+
+pub struct SignallingConnectionReactor {
     receiver: Receiver<String>
 }
 
+// impl Stream for SignallingConnection {
+//     type Item = String;
+//
+//     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+//         self.receiver.poll_next_unpin(cx)
+//     }
+// }
+
 impl std::fmt::Debug for SignallingConnection {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "sender: {:?}, receiver: {:?}, web_socket_stream: ?", self.sender, self.receiver)
+        write!(f, "sender: {:?}, web_socket_stream: ?", self.sender)
     }
 }
 
 impl SignallingConnection {
-    pub async fn new(local_id: u32, remote_id: Option<u32>) -> SignallingConnection {
+    pub async fn new(local_id: u32, remote_id: Option<u32>) -> (SignallingConnection, SignallingConnectionReactor) {
         // Connect to the given server
         let (mut web_socket_stream, _) =
             async_tungstenite::async_std::connect_async(SIGNALLING_SERVER).await.unwrap();
@@ -76,11 +93,12 @@ impl SignallingConnection {
         }
 
         let (sender, receiver) = mpsc::channel(1024);
-        SignallingConnection {
+        (SignallingConnection {
             web_socket_stream,
-            sender,
+            sender
+        }, SignallingConnectionReactor {
             receiver
-        }
+        })
     }
 
     pub async fn send(&self, message: String) -> Result<(), SendError> {
@@ -90,4 +108,10 @@ impl SignallingConnection {
     // pub fn get_sender(&self) -> Sender<String> {
     //     self.sender.clone()
     // }
+}
+
+impl SignallingConnectionReactor {
+    pub fn stream(self) -> impl Stream<Item = String> {
+        self.receiver
+    }
 }

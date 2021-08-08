@@ -16,8 +16,12 @@ use utils::serr;
 use async_std::task;
 use std::error::Error;
 use futures::join;
+use futures::select;
+use futures::pin_mut;
 use futures::FutureExt;
 use std::panic;
+use crate::webrtc::WebRTCReactor;
+use futures::stream::StreamExt;
 
 fn main() {
     macos_workaround::run(|| task::block_on(main_async()));
@@ -26,35 +30,50 @@ fn main() {
 
 async fn main_async() {
     // async_test::bla().await;
-    let server = task::spawn(async {
-        connect(10, None).await.unwrap();
+    let server_future = task::spawn(async {
+        connect(10, None).await
     });
 
-    let client = task::spawn(async {
-        connect(20, Some(10)).await.unwrap();
+    let client_future = task::spawn(async {
+        connect(20, Some(10)).await
     });
 
 
     // server.catch_unwind().await;
     // client.catch_unwind().await;
     // panic::catch_unwind(async {
-    let (server_result, client_result) = join!(server, client);
+    let (server, client) = join!(server_future, client_future);
+    let (server, server_reactor) = server;
+    let (client, client_reactor) = client;
+    let (server_stream, client_stream) = (server_reactor.stream().fuse(), client_reactor.stream().fuse());
+    pin_mut!(server_stream, client_stream);
+
+    loop {
+        let result = futures::select! {
+            message = server_stream.select_next_some() => println!("Server received: {}", message),
+            message = client_stream.select_next_some() => println!("Client received: {}", message),
+            // Once we're done, break the loop and return
+            complete => break,
+        };
+    }
+
+    println!("Exiting");
     // });
 }
 
-async fn connect(local_id: u32, remote_id: Option<u32>) -> Result<(), Box<dyn Error>> {
-    let signalling_connection = SignallingConnection::new(local_id, remote_id).await;
+async fn connect(local_id: u32, remote_id: Option<u32>) -> (WebRTC, WebRTCReactor) {
+    let (signalling_connection, signalling_connection_reactor) = SignallingConnection::new(local_id, remote_id).await;
 
     let (gstreamer_input, gstreamer_output) = read_gstreamer_io_config();
 
     let gstreamer = Gstreamer::new(&gstreamer_input, &gstreamer_output);
 
-    let webrtc = WebRTC::new(signalling_connection, gstreamer);
+    let (webrtc, webrtc_reactor) = WebRTC::new(signalling_connection, signalling_connection_reactor, gstreamer);
 
-    // let negotiation_result = webrtc.on_negotiation_needed().await;
-    let start_result = webrtc.start().await;
+    webrtc.start().await;
+    println!("WebRTC started");
 
-    Ok(())
+    (webrtc, webrtc_reactor)
 }
 
 fn read_gstreamer_io_config() -> (String, String) {

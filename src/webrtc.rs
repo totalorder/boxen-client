@@ -23,6 +23,13 @@ use gst::{StructureRef, PromiseError, Element};
 use gst_webrtc::WebRTCSessionDescription;
 use crate::completable_future::CompletableFuture;
 use crate::gstreamer_utils::ObjectTypeAsyncExt;
+use async_std::stream::Stream;
+use async_tungstenite::tungstenite::protocol::frame::coding::CloseCode::Policy;
+use futures::pin_mut;
+use futures::prelude::stream::{SplitStream, Map, Then};
+use futures::channel::mpsc::Receiver;
+use crate::signalling::SignallingConnectionReactor;
+use std::rc::Rc;
 
 // JSON messages we communicate with
 #[derive(Serialize, Deserialize)]
@@ -49,6 +56,11 @@ pub struct WebRTC {
     inner: Arc<InnerWebRTC>
 }
 
+pub struct WebRTCReactor {
+    webrtc: WeakWebRTC,
+    signalling_connection_reactor: SignallingConnectionReactor,
+}
+
 #[derive(Debug)]
 struct InnerWebRTC {
     signalling_connection: SignallingConnection,
@@ -62,13 +74,21 @@ impl WeakWebRTC {
 }
 
 impl WebRTC {
-    pub fn new(signalling_connection: SignallingConnection, gstreamer: Gstreamer) -> WebRTC {
-        WebRTC {
+    pub fn new(signalling_connection: SignallingConnection, signalling_connection_reactor: SignallingConnectionReactor, gstreamer: Gstreamer) -> (WebRTC, WebRTCReactor) {
+        let webrtc = WebRTC {
             inner: Arc::new(InnerWebRTC {
                 signalling_connection,
                 gstreamer,
             })
-        }
+        };
+
+        let webrtc_weak = webrtc.downgrade();
+        let webrtc_reactor = WebRTCReactor {
+            webrtc: webrtc_weak,
+            signalling_connection_reactor
+        };
+
+        (webrtc, webrtc_reactor)
     }
 
     fn downgrade(&self) -> WeakWebRTC {
@@ -135,4 +155,60 @@ impl WebRTC {
 
         self.inner.signalling_connection.send(message).await.unwrap();
     }
+
+    pub async fn on_signalling_message_received(&self, message: String) -> String {
+        println!("WebRTC message_received: {}", message);
+        message
+    }
 }
+
+impl WebRTCReactor {
+    pub fn stream(self) -> impl Stream<Item = String> {
+        // let webrtc_strong = self.webrtc.upgrade().unwrap();
+        let webrtc_weak = self.webrtc;
+        // let weak = webrtc_weak.weak.clone();
+
+
+        // let x: dyn FnMut(String) -> impl Future<Output=String> = |message: String| async move {
+        //     println!("WebRTCReactor received message: {}", message);
+        //     let webrtc_weak = weak.clone();
+        //     // let webrtc_strong = webrtc_weak.upgrade().unwrap();
+        //     // let message_copy = message.clone();
+        //     // webrtc_strong.message_received(message);
+        //     // "w00t".trim()
+        //     message
+        // };
+        self.signalling_connection_reactor.stream().then(move |message| {
+            WebRTCReactor::on_signalling_message_received(webrtc_weak.clone().upgrade().unwrap(), message)
+        })
+    }
+
+    async fn on_signalling_message_received(webrtc: WebRTC, message: String) -> String {
+        webrtc.on_signalling_message_received(message).await
+    }
+}
+
+// impl Stream for WebRTC {
+//     type Item = ();
+//
+//     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+//         let signalling_poll = self.inner.signalling_connection.poll_next_unpin(cx);
+//         match signalling_poll {
+//             Poll::Pending => Poll::Pending,
+//             Poll::Ready(message) => {
+//                 message.map_or_else(|| { Poll::Ready(None) }, |message| {
+//                     let mut message_received_fut = self.message_received(message);
+//                     pin_mut!(message_received_fut);
+//                     match message_received_fut.poll(cx) {
+//                         Poll::Pending => Poll::Pending,
+//                         Poll::Ready(_) => Poll::Pending
+//                     }
+//                 })
+//             }
+//         }
+//
+//
+//         // let poll = self.inner.signalling_connection.poll_next(cx);
+//
+//     }
+// }
