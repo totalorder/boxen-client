@@ -1,5 +1,5 @@
 # Setup on PC
-## Install packages
+## Un Ubuntu 21.04 or later: Install gstreamer and other packages 
 ```bash
 sudo apt update && sudo apt upgrade -y && sudo apt install -y \
   vim \
@@ -11,6 +11,42 @@ sudo apt update && sudo apt upgrade -y && sudo apt install -y \
   openssh-server \
   ninja-build \
   python3-pip
+```
+
+### On Ubuntu 20.04 or earlier: Build gstreamer 1.18 from source
+```
+# Install required packages
+sudo apt update && sudo apt upgrade -y && sudo apt install -y \
+  vim \
+  git \
+  libssl-dev \
+  git \
+  libglib2.0-dev \
+  ninja-build \
+  libbison-dev \
+  flex \
+  libcairo2-dev \
+  libmount-dev \
+  libopus-dev \
+  libsrtp2-dev \
+  libvpx-dev \
+  python3-pip
+
+# Clone the gst-build project, checkout the right branch, set up a virtualenv and install the meson build system
+git clone https://gitlab.freedesktop.org/gstreamer/gst-build.git
+cd gst-build
+git checkout 1.18.5
+python3 -m venv .venv
+source .venv/bin/activate
+pip install meson
+
+# Build gstreamer from source and install it in a local folder
+meson --prefix="$(pwd)/install" -Dbad=enabled -Dgst-plugins-bad:webrtc=enabled -Dgst-plugins-base:opus=enabled builddir
+ninja -C builddir
+meson install -C builddir
+
+# Tell the boxen-client build tools where our custom built gstreamer lives
+(cd install/lib/x86_64-linux-gnu/ && echo "$(pwd)" > ~/.libgstreamer-library-path.txt)
 ```
 
 ## Install rust

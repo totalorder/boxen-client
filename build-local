@@ -4,4 +4,11 @@ set -o nounset
 set -o pipefail
 set -o xtrace
 
+# Pick up a custom built gstreamer if configured
+if [ -f ~/.libgstreamer-library-path.txt ]; then
+  LIB_GSTREAMER_LIBRARY_PATH="$(cat ~/.libgstreamer-library-path.txt)"
+  PKG_CONFIG_PATH="${LIB_GSTREAMER_LIBRARY_PATH}/pkgconfig"
+  export PKG_CONFIG_PATH
+fi
+
 cargo build

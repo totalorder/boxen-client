@@ -4,9 +4,24 @@ set -o nounset
 set -o pipefail
 set -o xtrace
 
+# Pick up a custom built gstreamer if configured
+if [ -f ~/.libgstreamer-library-path.txt ]; then
+  LIB_GSTREAMER_LIBRARY_PATH="$(cat ~/.libgstreamer-library-path.txt)"
+  PKG_CONFIG_PATH="${LIB_GSTREAMER_LIBRARY_PATH}/pkgconfig"
+    export PKG_CONFIG_PATH
+  LD_LIBRARY_PATH="${LIB_GSTREAMER_LIBRARY_PATH}"
+  export LD_LIBRARY_PATH
+fi
+
+# Pick up a custom built libnice if configured
+if [ -f ~/.libnice-library-path.txt ]; then
+  LD_LIBRARY_PATH="${LD_LIBRARY_PATH}:$(cat ~/.libnice-library-path.txt)"
+  export LD_LIBRARY_PATH
+fi
+
 if [[ "${1:-}" == "--build" ]]; then
   shift
-  LD_LIBRARY_PATH="$(cat ~/.libnice-library-path.txt)" cargo run -- "$@" # GST_DEBUG="*webrtc*:7"
+  cargo run -- "$@" # GST_DEBUG="*webrtc*:7"
 else
-  LD_LIBRARY_PATH="$(cat ~/.libnice-library-path.txt)" target/debug/boxen-client "$@" # GST_DEBUG="*webrtc*:7"
+  target/debug/boxen-client "$@" # GST_DEBUG="*webrtc*:7"
 fi
