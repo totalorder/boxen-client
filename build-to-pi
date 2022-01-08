@@ -4,11 +4,11 @@ set -o nounset
 set -o pipefail
 set -o xtrace
 
-TARGET_HOST="$(cat pi-ip.txt)"
-if [[ "${1:-}" == "--target-host" ]]; then
-  TARGET_HOST="$2"
-  shift 2
-fi
+#TARGET_HOST="$(cat pi-ip.txt)"
+#if [[ "${1:-}" == "--target-host" ]]; then
+#  TARGET_HOST="$2"
+#  shift 2
+#fi
 
 TARGET_PATH="."
 TARGET_ARCH="aarch64-unknown-linux-gnu"
@@ -16,4 +16,4 @@ BINARY_NAME="boxen-client"
 SOURCE_PATH="./target/${TARGET_ARCH}/debug/${BINARY_NAME}"
 
 cross build --target="${TARGET_ARCH}"
-rsync "${SOURCE_PATH}" "${TARGET_HOST}:${TARGET_PATH}"
+#rsync "${SOURCE_PATH}" "${TARGET_HOST}:${TARGET_PATH}"
