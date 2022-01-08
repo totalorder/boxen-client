@@ -1,0 +1,14 @@
+1:  3.3v  5.0v
+2:  SDA   5.0v
+3:  SCL   
+
+6:  GP17  GP18 <- GP18=I2S, GP17=Button (Not needed)
+
+9:  3.3v
+
+15: GP05       <- GP05=LED (Not needed)
+16: GP06  GP12 <- GP06=LED (Not needed), GP12=JST (Not needed)
+
+18: GP19       <- GP19=I2S  
+19:       GP20 <- GP20=I2S
+29:       GP21 <- GP21=I2S
