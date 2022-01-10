@@ -1,4 +1,4 @@
-# All pins
+# Pins used by Bonnet
  1: 3.3v  5.0v :1
  2: SDA   5.0v :2  <- SDA=STEMMA (Needed, not wanted), 5.0v (Not needed)
  3: SCL   GND  :3  <- SCL=STEMMA (Needed, not wanted)
@@ -20,7 +20,7 @@
 19:       GP20 :19 <- GP20=I2S
 20: GND   GP21 :20 <- GND (Not needed), GP21=I2S
 
-# Required pins
+# Pins required by Bonnet
  1: 3.3v  5.0v :1
  2: SDA        :2 <- SDA=STEMMA
  3: SCL   GND  :3 <- SCL=STEMMA
@@ -41,3 +41,30 @@
 18: GP19       :18 <- GP19=I2S
 19:       GP20 :19 <- GP20=I2S
 20:       GP21 :20 <- GP21=I2S
+
+# Free GPIO pins not required by Bonnet (20 pins)
+ 1: ###   ###  :1
+ 2: ###        :2
+ 3: ###   ###  :3
+ 4: GP04  GP14 :4
+ 5: GND   GP15 :5
+ 6: GP17  ###  :6
+ 7: GP27  GND  :7
+ 8: GP22  GP23 :8
+ 9:       GP24 :9
+10: GP10  GND  :10
+11: GP09  GP25 :11
+12: GP11  GP08 :12
+13: GND   GP07 :13
+14:            :14
+15: GP05  GND  :15
+16: GP06  GP12 :16
+17: GP13  GND  :17
+18: ###   GP16 :18
+19: GP26  ###  :19
+20: GND   ###  :20
+
+
+Pins/button: 2
+Pins/led: 2
+Button/led pairs: 5
