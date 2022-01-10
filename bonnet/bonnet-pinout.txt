@@ -1,43 +1,43 @@
 # All pins
-1:  3.3v  5.0v
-2:  SDA   5.0v <- SDA=STEMMA (Needed, not wanted)
-3:  SCL   GND  <- SDL=STEMMA (Needed, not wanted), GND (Probably needed)
-4
-5:  GND        <- GND (Probably needed)
-6:  GP17  GP18 <- GP17=Button (Not needed), GP18=I2S
-7:        GND  <- GND (Probably needed)
-8
-9:  3.3v
-10:       GND  <- GND (Probably needed)
-11
-12
-13: GND        <- GND (Probably needed)
-14
-15: GP05  GND  <- GP05=LED (Not needed), GND (Probably needed)
-16: GP06  GP12 <- GP06=LED (Not needed), GP12=JST (Not needed)
-17:       GND  <- GND (Probably needed)
-18: GP19       <- GP19=I2S  
-19:       GP20 <- GP20=I2S
-20: GND   GP21 <- GND (Probably needed), GP21=I2S
+ 1: 3.3v  5.0v :1
+ 2: SDA   5.0v :2  <- SDA=STEMMA (Needed, not wanted), 5.0v (Not needed)
+ 3: SCL   GND  :3  <- SCL=STEMMA (Needed, not wanted)
+ 4:            :4
+ 5: GND        :5  <- GND (Not needed)
+ 6: GP17  GP18 :6  <- GP17=Button (Not needed), GP18=I2S
+ 7:       GND  :7  <- GND (Not needed)
+ 8:            :8
+ 9: 3.3v       :9  <- 3.3v (Not needed)
+10:       GND  :10 <- GND (Not needed)
+11:            :11
+12:            :12
+13: GND        :13 <- GND (Not needed)
+14:            :14
+15: GP05  GND  :15 <- GP05=LED (Not needed), GND (Not needed)
+16: GP06  GP12 :16 <- GP06=LED (Not needed), GP12=JST (Not needed)
+17:       GND  :17 <- GND (Not needed)
+18: GP19       :18 <- GP19=I2S
+19:       GP20 :19 <- GP20=I2S
+20: GND   GP21 :20 <- GND (Not needed), GP21=I2S
 
 # Required pins
-1:  3.3v  5.0v
-2:  SDA   5.0v <- SDA=STEMMA (Needed, not wanted)
-3:  SCL   GND  <- SDL=STEMMA (Needed, not wanted), GND (Probably needed)
-4
-5:  GND        <- GND (Probably needed)
-6:        GP18 <- GP18=I2S
-7:        GND  <- GND (Probably needed)
-8
-9:  3.3v
-10:       GND  <- GND (Probably needed)
-11
-12
-13: GND        <- GND (Probably needed)
-14
-15:       GND  <- GND (Probably needed)
-16
-17:       GND  <- GND (Probably needed)
-18: GP19       <- GP19=I2S
-19:       GP20 <- GP20=I2S
-20: GND   GP21 <- GND (Probably needed), GP21=I2S
+ 1: 3.3v  5.0v :1
+ 2: SDA        :2 <- SDA=STEMMA
+ 3: SCL   GND  :3 <- SCL=STEMMA
+ 4:            :4
+ 5:            :5
+ 6:       GP18 :6 <- GP18=I2S
+ 7:            :7
+ 8:            :8
+ 9:            :9
+10:            :10
+11:            :11
+12:            :12
+13:            :13
+14:            :14
+15:            :15
+16:            :16
+17:            :17
+18: GP19       :18 <- GP19=I2S
+19:       GP20 :19 <- GP20=I2S
+20:       GP21 :20 <- GP21=I2S
