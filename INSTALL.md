@@ -172,7 +172,7 @@ echo "192.168.0.123" > pi-ip.txt
 
 On your PC, scp your public key to the Pi, adding it as an authorized key on the Pi
 ```bash
-ssh $(cat pi-ip.txt) mkdir ~/.ssh && scp ~/.ssh/id_*.pub "$(cat pi-ip.txt):.ssh/authorized_keys"
+ssh $(cat pi-ip.txt) mkdir .ssh && scp ~/.ssh/id_*.pub "$(cat pi-ip.txt):.ssh/authorized_keys"
 ```
 ### Connect to the Pi over ssh
 On your PC, connect to the Pi over ssh so that the setup can be completed from your PC
@@ -192,7 +192,9 @@ sudo apt update && sudo apt upgrade -y && sudo apt install -y \
 
 ## Allow non-root access to the GPIO-pins on the Pi
 ```bash
-sudo adduser $USER dialout
+sudo adduser $USER dialout 
+sudo chown root.dialout /dev/gpiomem && sudo chmod g+rw /dev/gpiomem
+sudo chown root.dialout /dev/gpiochip0 && sudo chmod g+rw /dev/gpiochip0
 
 # Reboot the Pi so that systemd discovers the new group on startup 
 sudo reboot now
@@ -251,3 +253,7 @@ This will start boxen-client on boot
 ```bash
 (cd systemd && ./install $(cat ../pi-ip.txt))
 ```
+
+
+# Make sure the server is running
+https://github.com/totalorder/gst-examples-copy/blob/master/webrtc/signalling/Dockerfile

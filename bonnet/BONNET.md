@@ -9,20 +9,6 @@ ssh "$(cat pi-ip.txt)"
 
 # On the PI
 ```bash
-sudo apt install -y python3 python3-venv i2c-tools
-```
-
-## Try the adafruit bonnet stuff
-```
-mkdir ~/bonnet
-cd ~/bonnet
-python3 -m venv .venv --prompt bonnet
-source .venv/bin/activate
-python raspi-blinka.py
-```
-
-## Try the other stuff
-```
 git clone https://github.com/HinTak/seeed-voicecard
 cd seeed-voicecard
 sudo ./install.sh
