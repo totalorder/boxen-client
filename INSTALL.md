@@ -185,6 +185,7 @@ All subsequent commands should be run on the Pi
 ```bash
 sudo apt update && sudo apt upgrade -y && sudo apt install -y \
   gstreamer1.0-tools gstreamer1.0-nice gstreamer1.0-plugins-bad gstreamer1.0-plugins-ugly gstreamer1.0-plugins-good \
+  libssl-dev \
   ninja-build \
   python3-pip \
   git
@@ -192,9 +193,13 @@ sudo apt update && sudo apt upgrade -y && sudo apt install -y \
 
 ## Allow non-root access to the GPIO-pins on the Pi
 ```bash
-sudo adduser $USER dialout 
-sudo chown root.dialout /dev/gpiomem && sudo chmod g+rw /dev/gpiomem
-sudo chown root.dialout /dev/gpiochip0 && sudo chmod g+rw /dev/gpiochip0
+sudo adduser $USER dialout
+
+# If on Ubuntu 21.10. Make sure the "dialout" user get ownership on startup
+scp 99-gpio.rules $(cat pi-ip.txt):. && ssh -t $(cat pi-ip.txt) "sudo cp 99-gpio.rules /usr/lib/udev/rules.d/99-gpio.rules"
+ 
+#sudo chown root.dialout /dev/gpiomem && sudo chmod g+rw /dev/gpiomem
+#sudo chown root.dialout /dev/gpiochip0 && sudo chmod g+rw /dev/gpiochip0
 
 # Reboot the Pi so that systemd discovers the new group on startup 
 sudo reboot now

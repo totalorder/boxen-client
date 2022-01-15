@@ -15,7 +15,7 @@ sudo ./install.sh
 sudo reboot now
 
 # Get the id of the soundcard
-CARD_ID="$(sudo aplay -l | grep seeed | cut -d ' ' -f 2 | cut -d ':' -f 1)"
+CARD_ID="$(aplay -l | grep seeed | cut -d ' ' -f 2 | cut -d ':' -f 1)"
 
 # Set volume
 amixer -c "$CARD_ID" sset Speaker "76%"
@@ -26,4 +26,7 @@ amixer -c "$CARD_ID" sset Speaker "76%" && speaker-test -c2 -Dhw:"$CARD_ID"
 
 # Test mic
 amixer -c "$CARD_ID" sset Speaker "76%" && sudo arecord -c2 -f S16_LE -r 16000 --device="hw:$CARD_ID,0" | aplay -Dhw:"$CARD_ID"
+
+echo "alsasrc device=\"hw:$CARD_ID\"" > input.txt
+echo "audio/x-raw,format=S16LE,rate=48000 ! alsasink device=\"hw:$CARD_ID\"" > output.txt
 ```
