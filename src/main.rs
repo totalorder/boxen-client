@@ -126,7 +126,7 @@ impl App {
         AppWeak(Arc::downgrade(&self.0))
     }
 
-    fn new(args: Args, gpio: GPIO) -> Result<
+    fn new(args: Args, peer_id: Option<u32>, gpio: GPIO) -> Result<
             (Self, impl Stream<Item = gst::Message>, impl Stream<Item = WsMessage>),
             anyhow::Error> {
 
@@ -207,7 +207,7 @@ impl App {
         }));
 
         // Connect to on-negotiation-needed to handle sending an Offer
-        if app.args.peer_id.is_some() {
+        if peer_id.is_some() {
             let app_clone = app.downgrade();
             println!("Connecting on-negotiation-needed. \
                 Will be triggered when pipeline state set to Playing");
@@ -630,6 +630,7 @@ impl Drop for AppInner {
 async fn run(
     args: Args,
     ws: impl Sink<WsMessage, Error = WsError> + Stream<Item = Result<WsMessage, WsError>>,
+    peer_id: Option<u32>,
     gpio: GPIO
 ) -> Result<(), anyhow::Error> {
     // Split the websocket into the Sink and Stream
@@ -639,7 +640,7 @@ async fn run(
 
     println!("Starting app");
     // Create our application state
-    let (app, send_gst_msg_rx, send_ws_msg_rx) = App::new(args, gpio)?;
+    let (app, send_gst_msg_rx, send_ws_msg_rx) = App::new(args, peer_id, gpio)?;
 
     let mut send_gst_msg_rx = send_gst_msg_rx.fuse();
     let mut send_ws_msg_rx = send_ws_msg_rx.fuse();
@@ -740,17 +741,19 @@ async fn async_main() -> Result<(), anyhow::Error> {
 
     println!("Connected to websocket server");
 
+    let id_from_file = fs::read_to_string("id.txt")
+        .map(|id_from_file| id_from_file.trim().to_owned());
+
     // Say HELLO to the server and see if it replies with HELLO
     let our_id: u32 = if let Some(id) = args.id {
         id
+    } else if let Ok(id_from_file_ok) = id_from_file {
+        id_from_file_ok.parse::<u32>().unwrap()
     } else {
         rand::thread_rng().gen_range(10, 10_000)
     };
 
     println!("Sending HELLO, registering as id {}", our_id);
-
-    fs::write("id.txt", format!("{}", our_id))
-        .expect("Something went wrong writing the file id.txt");
 
     ws.send(WsMessage::Text(format!("HELLO {}", our_id)))
         .await?;
@@ -766,7 +769,19 @@ async fn async_main() -> Result<(), anyhow::Error> {
 
     println!("Received HELLO");
 
-    if let Some(peer_id) = args.peer_id {
+    let peer_id = if let Some(peer_id) = args.peer_id {
+        Some(peer_id)
+    } else if let Ok(peer_id_from_file) = fs::read_to_string("peer-id.txt") {
+        Some(peer_id_from_file
+            .trim()
+            .to_owned()
+            .parse::<u32>()
+            .unwrap())
+    } else {
+        None
+    };
+
+    if let Some(peer_id) = peer_id {
         println!("Sending SESSION, joining session {}", peer_id);
         // Join the given session
         ws.send(WsMessage::Text(format!("SESSION {}", peer_id)))
@@ -784,7 +799,7 @@ async fn async_main() -> Result<(), anyhow::Error> {
     }
 
     // All good, let's run our message loop
-    run(args, ws, gpio).await
+    run(args, ws, peer_id, gpio).await
 }
 
 #[derive(Debug)]

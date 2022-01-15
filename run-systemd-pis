@@ -1,0 +1,26 @@
+#!/usr/bin/env bash
+set -o errexit
+set -o nounset
+set -o pipefail
+set -o xtrace
+
+NO_BUILD=""
+
+if [[ "${1:-}" == "--no-build" ]]; then
+  shift
+  NO_BUILD="true"
+fi
+
+if [[ -z "${NO_BUILD}" ]]; then
+  ./build-to-pi
+  ./build-to-pi --no-build --target-host "$(cat pi-ip2.txt)"
+fi
+
+gnome-terminal -- bash -c 'echo $$ > .systemd-pid && ssh $(cat pi-ip.txt) "systemctl --user restart boxen-client.service ; journalctl --user-unit boxen-client -f"' &
+PI_PID=$!
+trap 'echo "Killing $(cat .systemd-pid)"; kill $(cat .systemd-pid) ; rm .systemd-pid' INT
+
+sleep 3
+ssh "$(cat pi-ip2.txt)" "systemctl --user restart boxen-client.service ; journalctl --user-unit boxen-client -f"
+
+wait ${PI_PID}
