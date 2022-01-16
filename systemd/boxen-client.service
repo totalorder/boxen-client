@@ -15,4 +15,4 @@ ExecStart=__HOME__/boxen-client-run
 WorkingDirectory=__HOME__
 
 [Install]
-WantedBy=multi-user.target
+WantedBy=default.target

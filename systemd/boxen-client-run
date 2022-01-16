@@ -1,2 +1,3 @@
 #!/usr/bin/env bash
+CARD_ID="$(aplay -l | grep seeed | cut -d ' ' -f 2 | cut -d ':' -f 1)" && amixer -c "$CARD_ID" sset Speaker "79%"
 LD_LIBRARY_PATH="$(cat ~/.libnice-library-path.txt)" ./boxen-client

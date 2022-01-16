@@ -6,7 +6,7 @@ use rand::prelude::*;
 use structopt::StructOpt;
 
 use async_std::prelude::*;
-use async_std::task;
+use async_std::{io, task, future};
 // use futures::channel::mpsc;
 use futures::sink::{Sink, SinkExt};
 use futures::stream::StreamExt;
@@ -33,6 +33,7 @@ use futures::channel::mpsc::{UnboundedSender, UnboundedReceiver};
 // use gst::glib::types::Type::Bool;
 use crossbeam_channel;
 use crossbeam_channel::{Receiver, Sender, select};
+use futures::TryStreamExt;
 use crate::ButtonEvent::Started;
 
 //use crate::LedState::{Off, Yellow, Green};
@@ -782,20 +783,40 @@ async fn async_main() -> Result<(), anyhow::Error> {
     };
 
     if let Some(peer_id) = peer_id {
-        println!("Sending SESSION, joining session {}", peer_id);
-        // Join the given session
-        ws.send(WsMessage::Text(format!("SESSION {}", peer_id)))
-            .await?;
+        loop {
+            println!("Sending SESSION, joining session {}", peer_id);
+            // Join the given session
+            ws.send(WsMessage::Text(format!("SESSION {}", peer_id)))
+                .await?;
 
-        let msg = ws
-            .next()
-            .await
-            .ok_or_else(|| anyhow!("didn't receive anything"))??;
+            let next_message_future = ws.try_next();
+            let next_message_with_timeout_future = future::timeout(Duration::from_secs(5), next_message_future);
+            let next_message_with_timeout = next_message_with_timeout_future.await;
+            match next_message_with_timeout {
+                Ok(message) => {
+                    let message = message.expect("Failure when receiving message when waiting for SESSION_OK");
+                    let message = message.expect("Received empty message from server when waiting for SESSION_OK");
 
-        if msg != WsMessage::Text("SESSION_OK".into()) {
-            bail!("server error: {:?}", msg);
+                    if message != WsMessage::Text("SESSION_OK".into()) {
+                        if message == WsMessage::Text(format!("ERROR peer '{}' not found", peer_id).into()) {
+                            println!("Peer {} not found. Retrying in 10 seconds...", peer_id);
+                            task::sleep(Duration::from_secs(10)).await;
+                            continue
+                        }
+                        // ERROR peer '1' not found
+                        bail!("Invalid response when waiting for SESSION_OK: {:?}", message);
+                    }
+
+                    println!("Received SESSION_OK");
+                    break
+                },
+                Err(err) => {
+                    println!("Timeout waiting for SESSION_OK: {:?}. Retrying in 10 seconds...", err);
+                    task::sleep(Duration::from_secs(10)).await;
+                    continue
+                }
+            }
         }
-        println!("Received SESSION_OK")
     }
 
     // All good, let's run our message loop
