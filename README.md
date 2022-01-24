@@ -172,7 +172,7 @@ echo "192.168.0.123" > pi-ip.txt
 
 On your PC, scp your public key to the Pi, adding it as an authorized key on the Pi
 ```bash
-ssh $(cat pi-ip.txt) mkdir .ssh && scp ~/.ssh/id_*.pub "$(cat pi-ip.txt):.ssh/authorized_keys"
+ssh $(cat pi-ip.txt) mkdir -p .ssh && scp ~/.ssh/id_*.pub "$(cat pi-ip.txt):.ssh/authorized_keys"
 ```
 ### Connect to the Pi over ssh
 On your PC, connect to the Pi over ssh so that the setup can be completed from your PC
@@ -180,6 +180,11 @@ On your PC, connect to the Pi over ssh so that the setup can be completed from y
 ssh $(cat pi-ip.txt)
 ```
 All subsequent commands should be run on the Pi
+
+### Setup automatic USB wifi
+```bash
+(cd usbwifi && ./install $(cat ../pi-ip.txt))
+```
 
 ## Install packages
 ```bash

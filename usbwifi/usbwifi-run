@@ -1,0 +1,71 @@
+#!/usr/bin/env bash
+set -o pipefail
+
+if [[ $1 != "wrapped" ]]; then
+  __HOME__/usbwifi-run wrapped 2>&1 | (IFS=''; while read -r LINE; do
+    echo "$(date -u --iso-8601=ns | head -c 23) ${LINE}" | tee -a __HOME__/usbwifi.log
+  done)
+  exit 0
+fi
+
+echo "usbwifi triggered"
+
+WIFI_CREDENTIALS_FILE="$(find /media/*/ -maxdepth 2 -name "wifi.txt" 2> /dev/null | head -n 1)"
+if [ -z "${WIFI_CREDENTIALS_FILE}" ]; then
+  echo "No wifi.txt found"
+  exit 1
+fi
+
+echo "WIFI_CREDENTIALS_FILE: ${WIFI_CREDENTIALS_FILE}"
+SSID=$(sed '1q;d' "${WIFI_CREDENTIALS_FILE}")
+PASSWORD=$(sed '2q;d' "${WIFI_CREDENTIALS_FILE}")
+if [ -z "${SSID}" ]; then
+  echo "No SSID found"
+  exit 1
+fi
+
+if [ -z "${PASSWORD}" ]; then
+  echo "No PASSWORD found"
+  exit 1
+fi
+
+echo "SSID: ${SSID}"
+
+
+if [[ ! -f /etc/netplan/99-custom-network.yaml ]]; then
+  echo "Creating /etc/netplan/99-custom-network.yaml"
+  cat <<EOF > .99-custom-network.yaml
+network:
+  wifis:
+  version: 2
+EOF
+  sudo cp .99-custom-network.yaml /etc/netplan/99-custom-network.yaml
+  rm .99-custom-network.yaml
+fi
+
+if [[ ! -f /etc/netplan/99-custom-network.yaml.bak ]]; then
+  echo "Backing up /etc/netplan/99-custom-network.yaml to /etc/netplan/99-custom-network.yaml.bak"
+  sudo cp /etc/netplan/99-custom-network.yaml /etc/netplan/99-custom-network.yaml.bak
+fi
+
+cat /etc/netplan/99-custom-network.yaml | yq eval-all \
+  'select(fileIndex==0).network.wifis.wlan0 = select(fileIndex==1) | select(fileIndex==0)' - <(cat <<EOF
+dhcp4: true
+optional: true
+access-points:
+    "${SSID}":
+        password: "${PASSWORD}"
+EOF
+) > .usbwifi.yaml
+
+if ! cmp --silent /etc/netplan/99-custom-network.yaml .usbwifi.yaml ; then
+  echo "Writing new config to /etc/netplan/99-custom-network.yaml"
+  sudo cp .usbwifi.yaml /etc/netplan/99-custom-network.yaml
+  echo "Applying netplan config"
+  sudo netplan --debug apply
+else
+  echo "Config was not changed. No need update or reload"
+fi
+
+rm .usbwifi.yaml
+echo "Done"

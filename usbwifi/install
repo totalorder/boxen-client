@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+
+set -o errexit
+set -o nounset
+set -o pipefail
+set -o xtrace
+
+TARGET_HOST="$1"
+
+scp usbwifi* "${TARGET_HOST}:."
+ssh -t "${TARGET_HOST}" "sed -i \"s!__HOME__!\${HOME}!g\" usbwifi.rules &&
+sudo cp usbwifi.rules /etc/udev/rules.d/99-usbwifi.rules &&
+rm usbwifi.rules &&
+sed -i \"s!__HOME__!\${HOME}!g\" usbwifi-wrapper &&
+sed -i \"s/__USER__/\${USER}/g\" usbwifi-run &&
+sed -i \"s!__HOME__!\${HOME}!g\" usbwifi-run &&
+sudo apt install -y usbmount &&
+sudo snap install yq &&
+sudo mkdir -p /etc/systemd/system/systemd-udevd.service.d &&
+echo -e '[Service]\nPrivateMounts=no' | sudo tee /etc/systemd/system/systemd-udevd.service.d/00-private-mounts-no.conf &&
+sudo systemctl restart udev &&
+sudo systemctl daemon-reexec &&
+sudo service systemd-udevd restart"
