@@ -1,0 +1,106 @@
+#!/usr/bin/env bash
+set -o pipefail
+set -e
+
+# Re-run this script, but wrap all output with a timestamp
+# This prepends "wrapped" as the first argument, shifting other arguments to the right, avoiding infinite recursion
+if [[ $1 != "wrapped" ]]; then
+  __HOME__/usbwifi wrapped "$@" 2>&1 | (IFS=''; while read -r LINE; do
+    echo "$(date -u --iso-8601=ns | head -c 23) ${LINE}" | tee -a __HOME__/usbwifi.log
+  done)
+  exit 0
+fi
+
+# This script should be run by a udev rule. It's not allowed to block in udev rules
+# Therefore we schedule the script to be run by "at", by a different process, in the future as soon as possible
+# This could probably be done with "nohup &" or similar instead
+if [[ $2 != "future" ]]; then
+  # This could be triggered multiple times by udev. Record the timestamp it was last triggered, and only actually run
+  # the script unless another run was triggered later
+  TIMESTAMP="$(date +%s.%N)"
+  echo "$TIMESTAMP" > .usbwifi-last-run.txt
+  echo "__HOME__/usbwifi future ${TIMESTAMP}" | at now
+  exit 0
+fi
+
+echo "Usbwifi triggered. Waiting a few seconds before checking for wifi.txt..."
+sleep 4
+
+TIMESTAMP="$3"
+LATEST_TIMESTAMP="$(cat .usbwifi-last-run.txt)"
+
+# The udev rule could have been triggered again while we were sleeping. Only execute the script if that didn't happen
+if [ "$TIMESTAMP" != "$LATEST_TIMESTAMP" ]; then
+  echo "Timestamp $TIMESTAMP superseded by later timestamp $LATEST_TIMESTAMP. Exiting"
+  exit 0
+fi
+
+rm .usbwifi-last-run.txt
+echo "Checking for wifi.txt"
+
+# Check if the file wifi.txt exists in the root of any usb-device, in /media/*/*
+WIFI_CREDENTIALS_FILE="$(find /media/*/ -maxdepth 2 -name "wifi.txt" 2> /dev/null | head -n 1)"
+if [ -z "${WIFI_CREDENTIALS_FILE}" ]; then
+  echo "No wifi.txt found"
+  exit 1
+fi
+
+echo "wifi.txt found: ${WIFI_CREDENTIALS_FILE}"
+
+# Get the ssid and password, from the first and second line of the file
+SSID=$(sed '1q;d' "${WIFI_CREDENTIALS_FILE}")
+PASSWORD=$(sed '2q;d' "${WIFI_CREDENTIALS_FILE}")
+if [ -z "${SSID}" ]; then
+  echo "No SSID found"
+  exit 1
+fi
+
+if [ -z "${PASSWORD}" ]; then
+  echo "No PASSWORD found"
+  exit 1
+fi
+
+echo "SSID: ${SSID}"
+
+# Initialize /etc/netplan/99-custom-network.yaml with empty config, unless it exists
+if [[ ! -f /etc/netplan/99-custom-network.yaml ]]; then
+  echo "Creating /etc/netplan/99-custom-network.yaml"
+  cat <<EOF > .99-custom-network.yaml
+network:
+  wifis:
+  version: 2
+EOF
+  sudo cp .99-custom-network.yaml /etc/netplan/99-custom-network.yaml
+  rm .99-custom-network.yaml
+fi
+
+# Back up /etc/netplan/99-custom-network.yaml
+if [[ ! -f /etc/netplan/99-custom-network.yaml.bak ]]; then
+  echo "Backing up /etc/netplan/99-custom-network.yaml to /etc/netplan/99-custom-network.yaml.bak"
+  sudo cp /etc/netplan/99-custom-network.yaml /etc/netplan/99-custom-network.yaml.bak
+fi
+
+# Create a copy of /etc/netplan/99-custom-network.yaml that includes the ssid and password from wifi.txt
+# /snap/bin is not on the path when run by udev. Specify full path /snap/bin/yq
+cat /etc/netplan/99-custom-network.yaml | /snap/bin/yq eval-all \
+  'select(fileIndex==0).network.wifis.wlan0 = select(fileIndex==1) | select(fileIndex==0)' - <(cat <<EOF
+dhcp4: true
+optional: true
+access-points:
+    "${SSID}":
+        password: "${PASSWORD}"
+EOF
+) > .usbwifi.yaml
+
+# If the config file differs from the current one, overwrite the current config and reload it
+if ! cmp --silent /etc/netplan/99-custom-network.yaml .usbwifi.yaml ; then
+  echo "Writing new config to /etc/netplan/99-custom-network.yaml"
+  sudo cp .usbwifi.yaml /etc/netplan/99-custom-network.yaml
+  echo "Applying netplan config"
+  sudo netplan --debug apply
+else
+  echo "Config was not changed. No need update or reload"
+fi
+
+rm .usbwifi.yaml
+echo "Done"

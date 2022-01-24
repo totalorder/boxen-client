@@ -1,1 +1,1 @@
-SUBSYSTEM=="block",ACTION=="add",RUN+="__HOME__/usbwifi-run"
+SUBSYSTEM=="block",ACTION=="add",RUN+="__HOME__/usbwifi"
