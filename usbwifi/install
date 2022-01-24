@@ -8,6 +8,14 @@ set -o xtrace
 TARGET_HOST="$1"
 
 scp usbwifi usbwifi.rules "${TARGET_HOST}:."
+
+# Install usbmount to automount usb sticks
+# Set udevd PrivateMounts=no to allow usbmount to mount correctly
+# Restart daemon-reexec and systemd-udevd to make sure PrivateMounts gets loaded
+# Install yq to manipulate yaml-files
+# Add the usbwifi.rules udev rule
+# Reload the udev rules to make sure usbwifi.rules gets loaded
+
 ssh -t "${TARGET_HOST}" "sed -i \"s!__HOME__!\${HOME}!g\" usbwifi.rules &&
 sudo cp usbwifi.rules /etc/udev/rules.d/99-usbwifi.rules &&
 rm usbwifi.rules &&
