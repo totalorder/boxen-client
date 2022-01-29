@@ -20,7 +20,6 @@ sudo apt update && sudo apt upgrade -y && sudo apt install -y \
   vim \
   git \
   libssl-dev \
-  git \
   libglib2.0-dev \
   ninja-build \
   libbison-dev \
@@ -192,7 +191,7 @@ sudo apt update && sudo apt upgrade -y && sudo apt install -y \
   gstreamer1.0-tools gstreamer1.0-nice gstreamer1.0-plugins-bad gstreamer1.0-plugins-ugly gstreamer1.0-plugins-good \
   libssl-dev \
   ninja-build \
-  python3-pip \
+  meson \  
   git
 ```
 
@@ -267,3 +266,6 @@ This will start boxen-client on boot
 
 # Make sure the server is running
 https://github.com/totalorder/gst-examples-copy/blob/master/webrtc/signalling/Dockerfile
+
+# Diff pi packages:
+diff -y --suppress-common-lines -W 220 <(ssh $(cat pi-ip.txt) "apt list --installed  | sed s/,automatic//g | sed s/,local//g | sed s/impish-updates,//g | sed s/impish-security,//g | sort") <(ssh $(cat pi-ip2.txt) "apt list --installed | sed s/,automatic//g | sed s/,local//g  | sed s/impish-updates,//g | sed s/impish-security,//g | sort")

@@ -1,0 +1,133 @@
+#!/usr/bin/env bash
+set -o errexit
+set -o nounset
+set -o pipefail
+if [[ -z "${RUNNING_ON_PI:-}" ]]; then
+  TARGET_HOST=""
+  if [[ "${1:-}" == "--target-host" ]]; then
+    TARGET_HOST="ubuntu@$2"
+    shift 2
+  else
+    if [ ! -f "pi-ip.txt" ]; then
+    cat <<EOF
+No pi-ip.txt found. Please run the following commands **on the pi**:
+
+# Create a config file for wifi
+sudo vim /etc/netplan/99-custom-network.yaml
+
+# Put this config in the file, replacing SSID-NAME-HERE and PASSWORD-HERE
+network:
+  wifis:
+    wlan0:
+      optional: true
+      access-points:
+        "SSID-NAME-HERE":
+          password: "PASSWORD-HERE"
+      dhcp4: true
+  version: 2
+
+# Connect to wifi
+sudo netplan --debug apply
+
+# Install openssh-server
+sudo apt update && sudo apt install -y openssh-server
+
+# Print the IP
+ip address show | grep "wlan0" -A 5 | grep "inet " | awk -F'[ /]' '{ print $6 }'
+
+# Then **on your PC**, put the IP of the pi, from the step above, in a file called ip-ip.txt
+echo "PI-IP-HERE" > pi-ip.txt
+
+# Rerun this script
+EOF
+      exit 1
+    fi
+    TARGET_HOST="ubuntu@$(cat pi-ip.txt)"
+  fi
+
+  echo "* Setting up ssh authorized_keys"
+  #ssh "${TARGET_HOST}" mkdir -p .ssh && scp ~/.ssh/id_*.pub "${TARGET_HOST}:.ssh/authorized_keys"
+
+  echo "* Uploading install script and dependencies to pi"
+  scp install-ubuntu-server-21-10 99-gpio.rules "${TARGET_HOST}:."
+
+  echo "* Running install script on pi"
+  ssh -t "${TARGET_HOST}" "RUNNING_ON_PI=true ./install-ubuntu-server-21-10"
+
+  echo "* Installing usbwifi "
+  #(cd usbwifi && ./install "${TARGET_HOST}")
+
+  ./build-to-pi --target-host "${TARGET_HOST}"
+
+  echo "* Installing as systemd service"
+  #(cd systemd && ./install "${TARGET_HOST}")
+
+  read -p "* The pi needs to reboot. Do this now? " -n 1 -r REPLY
+  echo
+  if [[ $REPLY =~ ^[Yy]$ ]]
+  then
+      ssh -t "${TARGET_HOST}" "sudo reboot"
+  fi
+
+  echo "* Done!"
+  exit 0
+fi
+
+# From here on we should only be running on the pi
+echo "* Hello from the pi!"
+
+echo "* Installing apt packages"
+#sudo apt update
+#sudo apt upgrade -y
+sudo apt install -y \
+  gstreamer1.0-tools gstreamer1.0-nice gstreamer1.0-plugins-bad gstreamer1.0-plugins-ugly gstreamer1.0-plugins-good gstreamer1.0-alsa \
+  build-essential \
+  libssl-dev \
+  libglib2.0-dev \
+  libgnutls28-dev \
+  ninja-build \
+  alsa-utils \
+  meson \
+  git
+
+# To get gst-device-monitor-1.0 to work
+#sudo apt install -y gstreamer1.0-plugins-base-apps pulseaudio
+
+echo "* Allowing current user to access GPIO"
+sudo adduser "$USER" dialout
+
+# If on Ubuntu 21.10. Make sure the "dialout" user get ownership on startup
+# Remember to reboot so that systemd discovers the dialout group
+sudo cp 99-gpio.rules /usr/lib/udev/rules.d/99-gpio.rules
+
+echo "* Making a custom build of libnice from source. Since there is a bug in libnice 1.16"
+# Make a custom build of libnice
+#git clone https://gitlab.freedesktop.org/libnice/libnice.git
+
+#pushd libnice
+#git checkout 6cb79825  # Check out a working version
+#meson --prefix "$(pwd)/install" builddir
+#ninja -C builddir
+#ninja -C builddir install
+#
+## Put the path of the compiled libnice in a file in the home directory for later use
+(cd install/lib/aarch64-linux-gnu/ && pwd > ~/.libnice-library-path.txt)
+#popd # libnice
+#
+## Install audio drivers for the Adafruit Voice Bonnet
+#echo "* Installing audio drivers for the Adafruit Voice Bonnet"
+#git clone https://github.com/HinTak/seeed-voicecard
+#pushd seeed-voicecard
+#sudo ./install.sh
+#popd # seeed-voicecard
+
+echo "* Setting the Adafruit Voice Bonnet as the input/output for boxen-client "
+# Set the Adafruit Voice Bonnet as the input/output for boxen-client
+CARD_ID="$(aplay -l | grep seeed | cut -d ' ' -f 2 | cut -d ':' -f 1)"
+echo "alsasrc device=\"hw:$CARD_ID\"" > input.txt
+echo "alsasink device=\"hw:$CARD_ID\"" > output.txt
+
+echo "* Setting id to 1"
+echo "1" > id.txt
+
+echo "* Bye from the pi!"
