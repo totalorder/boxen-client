@@ -9,6 +9,7 @@ if [ -f ~/.libgstreamer-library-path.txt ]; then
   LIB_GSTREAMER_LIBRARY_PATH="$(cat ~/.libgstreamer-library-path.txt)"
   PKG_CONFIG_PATH="${LIB_GSTREAMER_LIBRARY_PATH}/pkgconfig"
   export PKG_CONFIG_PATH
+  echo "PKG_CONFIG_PATH=$PKG_CONFIG_PATH"
 fi
 
 cargo build

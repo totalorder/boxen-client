@@ -1,2 +1,2 @@
 [target.aarch64-unknown-linux-gnu]
-image = "aarch64-unknown-linux-gnu-21-04-boxen-client"
+image = "aarch64-unknown-linux-gnu-22-04-boxen-client"

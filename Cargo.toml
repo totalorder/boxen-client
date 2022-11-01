@@ -8,19 +8,20 @@ edition = "2018"
 [dependencies]
 futures = "0.3"
 async-std = "1"
+clap = { version = "4", features = ["derive"] }
 structopt = { version = "0.3", default-features = false }
 anyhow = "1"
-rand = "0.7"
-async-tungstenite = { version = "0.8", features = ["async-std-runtime", "async-native-tls"] }
-gst = { package = "gstreamer", version = "0.16.5", features = ["v1_18"] }
+rand = "0.8"
+async-tungstenite = { version = "0.18", features = ["async-std-runtime", "async-native-tls"] }
+gst = { package = "gstreamer", version = "0.19", features = ["v1_18"] }
 #gst = { package = "gstreamer", version = "0.16.5", features = ["v1_18"] }
-gst-webrtc = { package = "gstreamer-webrtc", version = "0.16.5", features = ["v1_18"] }
-gst-sdp = { package = "gstreamer-sdp", version = "0.16.5", features = ["v1_18"] }
-gst-sys = { package = "gstreamer-sys", version = "0.9.1", features = ["v1_18"] }
+gst-webrtc = { package = "gstreamer-webrtc", version = "0.19", features = ["v1_18"] }
+gst-sdp = { package = "gstreamer-sdp", version = "0.19", features = ["v1_18"] }
+gst-sys = { package = "gstreamer-sys", version = "0.19.0", features = ["v1_18"] }
 serde = "1"
 serde_derive = "1"
 serde_json = "1"
 
 openssl = { version = "0.10", features = ["vendored"] }
 boxen-gpio = { path = "boxen-gpio" }
-crossbeam-channel = "0.5.1"
+crossbeam-channel = "0.5.6"
