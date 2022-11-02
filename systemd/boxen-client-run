@@ -1,3 +1,22 @@
 #!/usr/bin/env bash
-CARD_ID="$(aplay -l | grep seeed | cut -d ' ' -f 2 | cut -d ':' -f 1)" && amixer -c "$CARD_ID" sset Speaker "79%"
-LD_LIBRARY_PATH="$(cat ~/.libnice-library-path.txt)" ./boxen-client
+# Watch the logs of this script with:
+# $ journalctl --user -u boxen-client.service -f
+
+# Get the hardware id of the seeed device
+CARD_ID="$(aplay -l | grep seeed | cut -d ' ' -f 2 | cut -d ':' -f 1)"
+
+# Setup input/output devices if not already configured. The system needs to be rebooted after device drivers are
+# installed. This script will run on the next boot, and configure them accordingly
+if [[ -f ".seed-drivers-installed-system-not-rebooted" ]]; then
+  echo "alsasrc device=\"hw:$CARD_ID\"" > input.txt
+  echo "alsasink device=\"hw:$CARD_ID\"" > output.txt
+
+  # Remove the marker, to make sure we don't overwrite files on every boot
+  rm .seed-drivers-installed-system-not-rebooted
+fi
+
+# Set a reasonable volume
+amixer -c "$CARD_ID" sset Speaker "79%"
+
+# Run the service
+./boxen-client

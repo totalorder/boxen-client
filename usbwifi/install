@@ -7,7 +7,9 @@ set -o xtrace
 
 TARGET_HOST="$1"
 
-scp usbwifi usbwifi.rules "${TARGET_HOST}:."
+./build-debian-package
+
+scp usbwifi usbwifi.rules usbmount_0.0.24_all.deb "${TARGET_HOST}:."
 
 # Install usbmount to automount usb sticks
 # Set udevd PrivateMounts=no to allow usbmount to mount correctly
@@ -21,7 +23,8 @@ sudo cp usbwifi.rules /etc/udev/rules.d/99-usbwifi.rules &&
 rm usbwifi.rules &&
 sed -i \"s/__USER__/\${USER}/g\" usbwifi &&
 sed -i \"s!__HOME__!\${HOME}!g\" usbwifi &&
-sudo apt install -y usbmount at &&
+sudo apt install -y ./usbmount_0.0.24_all.deb &&
+sudo apt install -y at &&
 sudo snap install yq &&
 sudo mkdir -p /etc/systemd/system/systemd-udevd.service.d &&
 echo -e '[Service]\nPrivateMounts=no' | sudo tee /etc/systemd/system/systemd-udevd.service.d/00-private-mounts-no.conf &&

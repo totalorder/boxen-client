@@ -26,4 +26,4 @@ if [[ -z "${NO_BUILD}" ]]; then
   cross build --target="${TARGET_ARCH}"
 fi
 
-rsync "${SOURCE_PATH}" "ubuntu@${TARGET_HOST}:${TARGET_PATH}"
+rsync "${SOURCE_PATH}" "${TARGET_HOST}:${TARGET_PATH}"

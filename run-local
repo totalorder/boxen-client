@@ -13,12 +13,6 @@ if [ -f ~/.libgstreamer-library-path.txt ]; then
   export LD_LIBRARY_PATH
 fi
 
-# Pick up a custom built libnice if configured
-if [ -f ~/.libnice-library-path.txt ]; then
-  LD_LIBRARY_PATH="${LD_LIBRARY_PATH}:$(cat ~/.libnice-library-path.txt)"
-  export LD_LIBRARY_PATH
-fi
-
 if [[ "${1:-}" == "--build" ]]; then
   shift
   cargo run -- "$@" # GST_DEBUG="*webrtc*:7"

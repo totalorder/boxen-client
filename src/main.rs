@@ -134,7 +134,7 @@ impl App {
 
         // setup_gpio();
         let input = fs::read_to_string("input.txt")
-            .expect("Something went wrong reading the file")
+            .expect("Something went wrong reading input.txt")
             .trim()
             .to_owned();
 
@@ -568,16 +568,10 @@ impl App {
         let name = caps.structure(0).unwrap().name();
 
         let output = fs::read_to_string("output.txt")
-            .expect("Something went wrong reading the file output.txt")
+            .expect("Something went wrong reading output.txt")
             .trim()
             .to_owned();
 
-        // let sink = if name.starts_with("video/") {
-        //     gst::parse_bin_from_description(
-        //         "queue ! videoconvert ! videoscale ! autovideosink",
-        //         true,
-        //     )?
-        // } else if name.starts_with("audio/") {
         let sink = if name.starts_with("audio/") {
             gst::parse_bin_from_description(
                 &format!("{}{}", "queue ! audioconvert ! audioresample ! ", output),

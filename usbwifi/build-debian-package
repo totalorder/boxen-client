@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+
+set -o errexit
+set -o nounset
+set -o pipefail
+
+if [[ -f "usbmount_0.0.24_all.deb" ]]; then
+  echo "usbmount_0.0.24_all.deb already exists"
+  exit 0
+fi
+
+mkdir -p usbmount-git
+pushd usbmount-git
+
+git init
+git remote add origin git@github.com:rbrito/usbmount.git
+git fetch --depth 1 origin 9a92e7d622662380f4329e0db17e263509715722
+git checkout FETCH_HEAD
+
+sudo apt-get update && sudo apt-get install -y debhelper build-essential fakeroot
+
+dpkg-buildpackage -us -uc -b
+
+pushd # usbmount-git
+
+rm usbmount_*.buildinfo
+rm usbmount_*.changes
+rm -rf usbmount-git
