@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+set -o errexit
+set -o nounset
+set -o pipefail
+TARGET_HOST=""
+if [[ "${1:-}" == "--target-host" ]]; then
+  TARGET_HOST="$2"
+  shift 2
+else
+  if [ ! -f "pi-ip.txt" ]; then
+    echo "ERROR: No pi-ip.txt found, and --target-host is not set"
+    exit 1
+  fi
+  TARGET_HOST="$(cat pi-ip.txt)"
+fi
+
+ssh -t "${TARGET_HOST}" "rm -rf overlayfs ; git clone https://github.com/totalorder/overlayfs.git && (cd overlayfs/ && sudo ./setup.sh)"
+echo "* Overlayfs installed. It will be enabled on next boot"
+read -p "* Reboot now? (Y/n): " -n 1 -r REPLY
+echo ""
+if [[ ${REPLY:-y} =~ ^[Yy]$ ]]
+then
+    ssh -t "${TARGET_HOST}" "sudo reboot"
+fi
+
+echo "* Done!"
+exit 0

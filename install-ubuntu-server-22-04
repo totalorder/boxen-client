@@ -73,8 +73,7 @@ EOF
   echo "* Adafruit Voice Bonnet setup. After reboot, you can test it manually with:"
   echo '* $ CARD_ID="$(aplay -l | grep seeed | cut -d '\'' '\'' -f 2 | cut -d '\'':'\'' -f 1)" && amixer -c "$CARD_ID" sset Speaker "79%" && sudo arecord -c2 -f S16_LE -r 16000 --device="hw:$CARD_ID,0" | aplay -Dhw:"$CARD_ID"'
   echo ""
-  echo "* Before shipping, enable read-only filesystem like this (enabled on reboot):"
-  echo "* $ git clone git@github.com:totalorder/overlayfs.git && (cd overlayfs && sudo setup.sh)"
+  echo "* Before shipping, enable read-only filesystem like this: ./install-overlayfs"
   echo ""
   echo "* On the \"server\", run:"
   echo "* $ ssh ${TARGET_HOST} echo \"1\" > id.txt"
