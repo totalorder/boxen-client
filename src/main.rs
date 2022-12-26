@@ -1,4 +1,5 @@
 mod macos_workaround;
+
 use std::sync::{Arc, Mutex, Weak};
 
 use rand::prelude::*;
@@ -103,7 +104,7 @@ struct AppInner {
     webrtcbin: gst::Element,
     send_msg_tx: Mutex<futures::channel::mpsc::UnboundedSender<WsMessage>>,
     led_controller: LedController,
-    button_controller: ButtonController
+    button_controller: ButtonController,
 }
 
 // To be able to access the AppInner's fields on the App
@@ -129,8 +130,8 @@ impl App {
     }
 
     fn new(args: Args, peer_id: Option<u32>, gpio: GPIO) -> Result<
-            (Self, impl Stream<Item = gst::Message>, impl Stream<Item = WsMessage>),
-            anyhow::Error> {
+        (Self, impl Stream<Item=gst::Message>, impl Stream<Item=WsMessage>),
+        anyhow::Error> {
 
         // setup_gpio();
         let input = fs::read_to_string("input.txt")
@@ -205,7 +206,7 @@ impl App {
             webrtcbin,
             send_msg_tx: Mutex::new(send_ws_msg_tx),
             led_controller,
-            button_controller
+            button_controller,
         }));
 
         // Connect to on-negotiation-needed to handle sending an Offer
@@ -347,7 +348,6 @@ impl App {
         &self,
         reply: Result<Option<&gst::StructureRef>, gst::PromiseError>,
     ) -> Result<(), anyhow::Error> {
-
         let reply = match reply {
             Ok(Some(reply)) => reply,
             Ok(None) => {
@@ -378,7 +378,7 @@ impl App {
             type_: "offer".to_string(),
             sdp: offer.sdp().as_text().unwrap(),
         })
-        .unwrap();
+            .unwrap();
 
         self.send_msg_tx
             .lock()
@@ -424,7 +424,7 @@ impl App {
             type_: "answer".to_string(),
             sdp: answer.sdp().as_text().unwrap(),
         })
-        .unwrap();
+            .unwrap();
 
         self.send_msg_tx
             .lock()
@@ -517,7 +517,7 @@ impl App {
             candidate,
             sdp_mline_index: mlineindex,
         })
-        .unwrap();
+            .unwrap();
 
         self.send_msg_tx
             .lock()
@@ -574,7 +574,7 @@ impl App {
 
         let sink = if name.starts_with("audio/") {
             gst::parse_bin_from_description(
-                &format!("{}{}", "queue ! audioconvert ! audioresample ! ", output),
+                &format!("{}{}", "queue ! audioconvert ! audioresample ! webrtcechoprobe ! ", output),
                 true,
             )?
         } else {
@@ -591,6 +591,34 @@ impl App {
         pad.link(&sinkpad)
             .with_context(|| format!("can't link sink for stream {:?}", caps))?;
         println!("Sink started and linked to pad");
+
+        // Add echo cancellation between "audiosrc" and "volume" elements. This depends on the
+        // "webrtcechoprobe" element being present right before the output
+        let webrtcdsp = gst::ElementFactory::make("webrtcdsp").build()
+            .expect("Failed to create webrtcdsp element");
+
+        self.pipeline.add(&webrtcdsp).expect("Failed add webrtcdsp to pipeline");
+        webrtcdsp.sync_state_with_parent().expect("Failed to sync webrtcdsp state with parent");
+
+        let audiosrc = self.pipeline
+            .by_name("audiosrc")
+            .expect("Can't find element by name audiosrc");
+
+        let volume = self.pipeline
+            .by_name("volume")
+            .expect("Can't find element by name volume");
+
+        // Unlink "audiosrc ! volume" and link "audiosrc ! webrtcdsp ! volume" instead
+        let audiosrc_source = audiosrc.static_pad("src").expect("Can't find audiosrc source");
+        let webrtcdsp_sink = webrtcdsp.static_pad("sink").expect("Can't find webrtcdsp sink");
+
+        let webrtcdsp_source = webrtcdsp.static_pad("src").expect("Can't find webrtcdsp source");
+        let volume_sink = volume.static_pad("sink").expect("Can't find volume sink");
+
+        audiosrc_source.unlink(&volume_sink).expect("Can't unlink audiosrc source and volume sink");
+        audiosrc_source.link(&webrtcdsp_sink).expect("Can't link audiosrc source to webrtcdsp sink");
+        webrtcdsp_source.link(&volume_sink).expect("Can't link webrtcdsp source to volume sink");
+
         self.button_controller.clone().started();
 
         Ok(())
@@ -607,9 +635,9 @@ impl Drop for AppInner {
 
 async fn run(
     args: Args,
-    ws: impl Sink<WsMessage, Error = WsError> + Stream<Item = Result<WsMessage, WsError>>,
+    ws: impl Sink<WsMessage, Error=WsError> + Stream<Item=Result<WsMessage, WsError>>,
     peer_id: Option<u32>,
-    gpio: GPIO
+    gpio: GPIO,
 ) -> Result<(), anyhow::Error> {
     // Split the websocket into the Sink and Stream
     let (mut ws_sink, ws_stream) = ws.split();
@@ -779,19 +807,19 @@ async fn async_main() -> Result<(), anyhow::Error> {
                         if message == WsMessage::Text(format!("ERROR peer '{}' not found", peer_id).into()) {
                             println!("Peer {} not found. Retrying in 10 seconds...", peer_id);
                             task::sleep(Duration::from_secs(10)).await;
-                            continue
+                            continue;
                         }
                         // ERROR peer '1' not found
                         bail!("Invalid response when waiting for SESSION_OK: {:?}", message);
                     }
 
                     println!("Received SESSION_OK");
-                    break
-                },
+                    break;
+                }
                 Err(err) => {
                     println!("Timeout waiting for SESSION_OK: {:?}. Retrying in 10 seconds...", err);
                     task::sleep(Duration::from_secs(10)).await;
-                    continue
+                    continue;
                 }
             }
         }
@@ -806,12 +834,12 @@ enum LedState {
     Off,
     Yellow,
     YellowBlink,
-    Green
+    Green,
 }
 
-#[derive(Debug,Clone)]
+#[derive(Debug, Clone)]
 struct LedController {
-    led_tx: Sender<LedState>
+    led_tx: Sender<LedState>,
 }
 
 impl LedController {
@@ -844,9 +872,9 @@ impl LedController {
     }
 }
 
-#[derive(Debug,Clone)]
+#[derive(Debug, Clone)]
 struct ButtonController {
-    event_tx: Sender<ButtonEvent>
+    event_tx: Sender<ButtonEvent>,
 }
 
 impl ButtonController {
@@ -859,13 +887,13 @@ struct ButtonListener {
     button_rx: Receiver<(u8, bool)>,
     event_rx: Receiver<ButtonEvent>,
     yellow_initial_state: bool,
-    green_initial_state: bool
+    green_initial_state: bool,
 }
 
 struct GPIO {
     button_listener: ButtonListener,
     led_controller: LedController,
-    button_controller: ButtonController
+    button_controller: ButtonController,
 }
 
 impl GPIO {
@@ -889,13 +917,13 @@ impl GPIO {
                 button_rx,
                 event_rx,
                 yellow_initial_state: true,
-                green_initial_state: true
+                green_initial_state: true,
             };
 
             return GPIO {
                 button_listener,
                 led_controller,
-                button_controller
+                button_controller,
             };
         }
 
@@ -939,7 +967,7 @@ impl GPIO {
         GPIO {
             button_listener,
             led_controller,
-            button_controller
+            button_controller,
         }
     }
 }
