@@ -5,15 +5,9 @@
 # Get the hardware id of the seeed device
 CARD_ID="$(aplay -l | grep seeed | cut -d ' ' -f 2 | cut -d ':' -f 1)"
 
-# Setup input/output devices if not already configured. The system needs to be rebooted after device drivers are
-# installed. This script will run on the next boot, and configure them accordingly
-if [[ -f ".seed-drivers-installed-system-not-rebooted" ]]; then
-  echo "alsasrc device=\"hw:$CARD_ID\"" > input.txt
-  echo "alsasink device=\"hw:$CARD_ID\"" > output.txt
-
-  # Remove the marker, to make sure we don't overwrite files on every boot
-  rm .seed-drivers-installed-system-not-rebooted
-fi
+# Setup input/output device on every boot, since the device id changes sometimes
+echo "alsasrc device=\"hw:$CARD_ID\"" > input.txt
+echo "alsasink device=\"hw:$CARD_ID\"" > output.txt
 
 # Set a reasonable volume
 amixer -c "$CARD_ID" sset Speaker "79%"

@@ -112,10 +112,6 @@ if [[ ! -d "seeed-voicecard" ]]; then
   pushd seeed-voicecard
   sudo DEBIAN_FRONTEND=noninteractive ./install.sh
   popd # seeed-voicecard
-
-  # If this exists the systemd script will overwrite input.txt and output.txt with the correct configuration on next
-  # boot. This is needed because the device id changes on the first reboot
-  touch .seed-drivers-installed-system-not-rebooted
 else
   echo "* Audio drivers for the Adafruit Voice Bonnet already installed"
 fi
